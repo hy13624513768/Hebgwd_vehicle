@@ -1,0 +1,66 @@
+/* Claude-inspired tokens — see frontend/DESIGN.md (getdesign add claude) */
+:root {
+  --cl-near-black: #141413;
+  --cl-terracotta: #c96442;
+  /* Alias used by toolbar / form primary buttons across views */
+  --cl-brand: var(--cl-terracotta);
+  --cl-coral: #d97757;
+  --cl-error: #b53333;
+  --cl-focus: #3898ec;
+  --cl-parchment: #f5f4ed;
+  --cl-ivory: #faf9f5;
+  --cl-white: #ffffff;
+  --cl-warm-sand: #e8e6dc;
+  --cl-dark-surface: #30302e;
+  --cl-charcoal: #4d4c48;
+  --cl-olive: #5e5d59;
+  --cl-stone: #87867f;
+  --cl-dark-warm: #3d3d3a;
+  --cl-warm-silver: #b0aea5;
+  --cl-border-cream: #f0eee6;
+  --cl-border-warm: #e8e6dc;
+  --cl-ring-warm: #d1cfc5;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+#app {
+  height: 100%;
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--cl-parchment);
+  color: var(--cl-near-black);
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Arial,
+    'Microsoft YaHei',
+    微软雅黑,
+    sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  font-family: Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif;
+  font-weight: 500;
+  letter-spacing: normal;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--cl-focus);
+  outline-offset: 1px;
+}
