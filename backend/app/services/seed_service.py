@@ -10,6 +10,7 @@ from app.core.security import hash_password
 from app.models.driver import Driver
 from app.models.fuel import FuelBalance, FuelCard, FuelRecord
 from app.models.maintenance import MaintenanceRecord
+from app.models.nav_preset import NavPreset
 from app.models.trip_request import TripRequest
 from app.models.user import User
 from app.models.vehicle import Vehicle
@@ -233,3 +234,20 @@ def link_demo_driver_accounts(db: Session) -> None:
     if u and d and d.user_id is None:
         d.user_id = u.id
         db.commit()
+
+
+_NAV_PRESET_SEED: list[tuple[str, float, float]] = [
+    ("哈尔滨工务段", 126.57466, 45.706031),
+    ("哈双路", 126.5836, 45.6891),
+    ("京哈高速1235公里725米作业门", 126.539952, 45.657708),
+]
+
+
+def seed_nav_presets_if_empty(db: Session) -> None:
+    """段内导航预设点：表为空时写入与前端默认一致的演示数据。"""
+    count = int(db.scalar(select(func.count()).select_from(NavPreset)) or 0)
+    if count > 0:
+        return
+    for order, (name, lng, lat) in enumerate(_NAV_PRESET_SEED):
+        db.add(NavPreset(sort_order=order, name=name, lng=lng, lat=lat, is_locked=True))
+    db.commit()

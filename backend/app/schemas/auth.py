@@ -15,6 +15,12 @@ class LoginRequest(BaseModel):
     slider_session_id: str = Field(min_length=8, max_length=128)
 
 
+class VerifyCurrentPasswordRequest(BaseModel):
+    """已登录用户校验自身密码（如敏感操作二次确认）。"""
+
+    password: str = Field(min_length=1, max_length=128)
+
+
 class UserInfo(BaseModel):
     id: int
     username: str

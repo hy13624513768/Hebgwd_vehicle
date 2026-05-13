@@ -7,7 +7,11 @@ class Settings(BaseSettings):
     """运行环境标识：development / test / staging / preprod / production（用于日志与健康检查展示，请与各部署环境的 .env 对应）"""
     environment: str = "development"
 
-    database_url: str = "postgresql+psycopg2://bus_test:bus_test_123@127.0.0.1:55432/bus_system_test"
+    # 默认：Sealos 集群内 PostgreSQL Service（与后端同集群时可直连）。
+    # 本地开发请在 backend/.env 中覆盖为 127.0.0.1:55432 或 Docker 映射端口；密码勿提交版本库。
+    database_url: str = (
+        "postgresql+psycopg2://postgres:CHANGE_ME@bus-system-postgresql.ns-1ht608x0.svc:5432/bus_system_test"
+    )
     jwt_secret: str = "change-me"
     jwt_expire_minutes: int = 120
     cors_origins: str = "http://127.0.0.1:5173,http://localhost:5173"

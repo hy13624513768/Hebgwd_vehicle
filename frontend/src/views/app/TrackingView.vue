@@ -6,12 +6,17 @@
         演示地图容器；后续可接入车辆实时位置、历史轨迹与电子围栏。与导航模块共用高德环境变量。
       </p>
     </header>
-    <AmapContainer :zoom="11" class="tracking__map" />
+    <AmapContainer v-model:preset-markers="trackingPresets" :zoom="11" class="tracking__map" />
   </div>
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
+
 import AmapContainer from '@/components/AmapContainer.vue'
+import type { PresetMarker } from '@/lib/amapPresets'
+
+const trackingPresets = ref<PresetMarker[]>([])
 </script>
 
 <style scoped>

@@ -16,6 +16,9 @@ class Driver(Base):
     name: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     phone: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     license_type: Mapped[str] = mapped_column(String(32), default="", nullable=False)  # 准驾
+    vehicle_type_label: Mapped[str] = mapped_column(
+        String(64), default="", nullable=False
+    )  # 车辆类型标签（与车辆主数据字段名一致，便于对账）
     status: Mapped[str] = mapped_column(String(64), default="", nullable=False, index=True)  # 状态
     id_card: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)  # 身份证号
     health_check_report: Mapped[str | None] = mapped_column(Text, nullable=True)

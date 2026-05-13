@@ -47,7 +47,18 @@ def driver_stats(db: DbSession, _: CurrentUser) -> DriverStatsOut:
     for lt, cnt in db.execute(select(Driver.license_type, func.count()).group_by(Driver.license_type)).all():
         key = (lt or "").strip() or "(未填)"
         by_license_type[key] = int(cnt)
-    return DriverStatsOut(total=total, by_status=by_status, by_license_type=by_license_type)
+    by_vehicle_type_label: dict[str, int] = {}
+    for lbl, cnt in db.execute(
+        select(Driver.vehicle_type_label, func.count()).group_by(Driver.vehicle_type_label)
+    ).all():
+        key = (lbl or "").strip() or "(未填)"
+        by_vehicle_type_label[key] = int(cnt)
+    return DriverStatsOut(
+        total=total,
+        by_status=by_status,
+        by_license_type=by_license_type,
+        by_vehicle_type_label=by_vehicle_type_label,
+    )
 
 
 @router.get("", response_model=DriverListOut)
@@ -68,6 +79,7 @@ def list_drivers(
                 Driver.name.ilike(like),
                 Driver.phone.ilike(like),
                 Driver.id_card.ilike(like),
+                Driver.vehicle_type_label.ilike(like),
             )
         )
     if status is not None and status.strip():
@@ -103,6 +115,7 @@ def create_driver(db: DbSession, current: FleetUser, body: DriverCreate) -> Driv
         name=body.name.strip(),
         phone=body.phone.strip(),
         license_type=(body.license_type or "").strip(),
+        vehicle_type_label=(body.vehicle_type_label or "").strip(),
         status=(body.status or "").strip(),
         id_card=(body.id_card or "").strip() or None,
         health_check_report=body.health_check_report,

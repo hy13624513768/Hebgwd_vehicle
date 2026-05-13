@@ -19,6 +19,9 @@ const ACCOUNT_ADMIN_ROLES = new Set([
   'fleet_manager',
 ])
 
+/** 地图预设点拖动 / 坐标编辑（与车队管理层级一致：段级、车间级管理员等；不含驾驶员、普通职员） */
+const MAP_LOCATION_EDIT_ROLES = FLEET_MANAGEMENT_ROLES
+
 export function usePermissions() {
   const user = useUserStore()
 
@@ -32,6 +35,7 @@ export function usePermissions() {
   const canManageFleet = computed(() => FLEET_MANAGEMENT_ROLES.has(role.value))
   const canExportReports = computed(() => FLEET_MANAGEMENT_ROLES.has(role.value))
   const canManageAccounts = computed(() => ACCOUNT_ADMIN_ROLES.has(role.value))
+  const canEditMapLocations = computed(() => MAP_LOCATION_EDIT_ROLES.has(role.value))
 
   return {
     role,
@@ -42,5 +46,6 @@ export function usePermissions() {
     canManageFleet,
     canExportReports,
     canManageAccounts,
+    canEditMapLocations,
   }
 }

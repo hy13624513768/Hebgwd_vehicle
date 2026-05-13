@@ -85,6 +85,10 @@
               {{ y === NO_YEAR_OPT ? '未登记年份' : `${y} 年` }}
             </option>
           </select>
+          <select v-model="filterVehicleTypeLabel" class="sel" title="车辆类型（与条形图一致，可点击图表快捷筛选）">
+            <option value="all">全部车辆类型</option>
+            <option v-for="t in vehicleTypeLabelFilterOptions" :key="t" :value="t">{{ t }}</option>
+          </select>
           <select v-model="statusSlice" class="sel">
             <option value="all">全部状态</option>
             <option value="active">在役</option>
@@ -119,61 +123,122 @@
 
       <div class="charts">
         <article class="chart">
-          <div class="ct">车间（使用单位）分布</div>
+          <div class="ct">车间（使用单位）分布 <span class="ct-hint">· 点击筛选表格</span></div>
           <div class="bars bars--scroll">
-            <div v-for="(x, idx) in orgUnitStats" :key="x.name" class="bar-row">
+            <button
+              v-for="(x, idx) in orgUnitStats"
+              :key="x.name"
+              type="button"
+              class="bar-row bar-row--interactive"
+              :class="{ 'bar-row--active': orgUnitBarActive(x) }"
+              :title="`筛选使用单位：${x.name}（再点一次取消）`"
+              @click="onOrgUnitBarClick(x)"
+            >
               <div class="bar-label">{{ x.name }}</div>
-              <div class="bar-track">
+              <div class="bar-track" aria-hidden="true">
                 <div class="bar-fill" :style="chartBarFillStyle(x.value, orgUnitMax, idx)" />
               </div>
               <div class="bar-value">{{ formatMetricValue(x.value) }}</div>
-            </div>
+            </button>
           </div>
         </article>
 
         <article class="chart">
-          <div class="ct">品牌分布（Top 8）</div>
+          <div class="ct">品牌分布（Top 8） <span class="ct-hint">· 点击筛选表格</span></div>
           <div class="bars bars--scroll">
-            <div v-for="(x, idx) in brandStats" :key="x.name" class="bar-row">
+            <button
+              v-for="(x, idx) in brandStats"
+              :key="x.name"
+              type="button"
+              class="bar-row bar-row--interactive"
+              :class="{ 'bar-row--active': brandBarActive(x) }"
+              :title="`筛选品牌：${x.name}（再点一次取消）`"
+              @click="onBrandBarClick(x)"
+            >
               <div class="bar-label">{{ x.name }}</div>
-              <div class="bar-track">
+              <div class="bar-track" aria-hidden="true">
                 <div class="bar-fill" :style="chartBarFillStyle(x.value, brandMax, idx)" />
               </div>
               <div class="bar-value">{{ formatMetricValue(x.value) }}</div>
-            </div>
+            </button>
           </div>
         </article>
 
         <!-- 宽屏两列网格：注册登记在左、座位数在右（同排）；窄屏单列自上而下 -->
         <article class="chart">
-          <div class="ct">注册登记时间分布（按登记年份，与上方 KPI 筛选一致）</div>
+          <div class="ct">注册登记时间分布（按登记年份，与上方 KPI 筛选一致） <span class="ct-hint">· 点击筛选表格</span></div>
           <div class="bars bars--scroll">
-            <div v-for="(row, idx) in registrationYearChart" :key="row.name" class="bar-row">
+            <button
+              v-for="(row, idx) in registrationYearChart"
+              :key="row.name"
+              type="button"
+              class="bar-row bar-row--interactive"
+              :class="{ 'bar-row--active': yearBarActive(row) }"
+              :title="`筛选登记年份：${row.name === '未登记' ? '未登记' : row.name + '年'}（再点一次取消）`"
+              @click="onYearBarClick(row)"
+            >
               <div class="bar-label">{{ row.name === '未登记' ? '未登记' : `${row.name}年` }}</div>
-              <div class="bar-track">
+              <div class="bar-track" aria-hidden="true">
                 <div class="bar-fill" :style="chartBarFillStyle(row.value, registrationYearChartMax, idx)" />
               </div>
               <div class="bar-value">{{ formatMetricValue(row.value) }}</div>
-            </div>
+            </button>
           </div>
         </article>
 
         <article class="chart">
-          <div class="ct">座位数分布</div>
+          <div class="ct">座位数分布 <span class="ct-hint">· 点击筛选表格</span></div>
           <div class="bars bars--scroll">
-            <div v-for="(x, idx) in seatStats" :key="x.name" class="bar-row">
+            <button
+              v-for="(x, idx) in seatStats"
+              :key="x.name"
+              type="button"
+              class="bar-row bar-row--interactive"
+              :class="{ 'bar-row--active': seatBarActive(x) }"
+              :title="`筛选座位数：${x.name} 座（再点一次取消）`"
+              @click="onSeatBarClick(x)"
+            >
               <div class="bar-label">{{ x.name }}座</div>
-              <div class="bar-track">
+              <div class="bar-track" aria-hidden="true">
                 <div class="bar-fill" :style="chartBarFillStyle(x.value, seatMax, idx)" />
               </div>
               <div class="bar-value">{{ formatMetricValue(x.value) }}</div>
-            </div>
+            </button>
+          </div>
+        </article>
+
+        <article class="chart chart--wide">
+          <div class="ct">车辆类型标签占比（bus_vehicle.vehicle_type_label） <span class="ct-hint">· 点击筛选表格</span></div>
+          <p class="chart-note">
+            与上方车间、品牌、座数、登记年份、车辆类型、状态及搜索筛选一致；指标随「按车辆数 / 按总里程」切换，占比为当前筛选结果内合计的份额。
+          </p>
+          <div v-if="!vehicleTypeLabelStats.length" class="bars bars--scroll bars--empty">
+            <p class="empty-hint">当前筛选下没有车辆，请调整条件或刷新。</p>
+          </div>
+          <div v-else class="bars bars--scroll">
+            <button
+              v-for="(x, idx) in vehicleTypeLabelStats"
+              :key="x.name"
+              type="button"
+              class="bar-row bar-row--interactive"
+              :class="{ 'bar-row--active': vehicleTypeBarActive(x) }"
+              :title="`筛选车辆类型：${x.name}（再点一次取消）`"
+              @click="onVehicleTypeBarClick(x)"
+            >
+              <div class="bar-label" :title="x.name">{{ x.name }}</div>
+              <div class="bar-track" aria-hidden="true">
+                <div class="bar-fill" :style="chartBarFillStyle(x.value, vehicleTypeLabelMax, idx)" />
+              </div>
+              <div class="bar-value bar-value--share">
+                {{ formatMetricValue(x.value) }}（{{ formatVehicleTypeShare(x.value) }}）
+              </div>
+            </button>
           </div>
         </article>
       </div>
     </section>
 
-    <div v-if="!loading" class="tbl-wrap">
+    <div v-if="!loading" ref="tblWrapRef" class="tbl-wrap">
       <table class="tbl tbl--desktop">
         <thead>
           <tr>
@@ -350,6 +415,8 @@ const { canManageFleet } = usePermissions()
 const loading = ref(true)
 const saving = ref(false)
 const rows = ref<Vehicle[]>([])
+/** 点击条形图后滚动到表格区域 */
+const tblWrapRef = ref<HTMLElement | null>(null)
 const q = ref('')
 const msg = ref('')
 const statusSlice = ref<'all' | 'active' | 'inactive' | 'repairing'>('all')
@@ -367,6 +434,8 @@ const filterOrgUnit = ref<string>('all')
 const filterBrand = ref<string>('all')
 const filterSeats = ref<string>('all')
 const filterYear = ref<string>('all')
+/** 车辆类型标签；「未填写」与条形图空值桶一致 */
+const filterVehicleTypeLabel = ref<string>('all')
 
 /** 使用单位：可搜索下拉 */
 const orgUnitComboRef = ref<HTMLElement | null>(null)
@@ -435,14 +504,13 @@ function cell(s: string | null | undefined) {
   return t || '—'
 }
 
-/** 表格「车辆规格」：型号 + 颜色 + 座位 */
+/** 表格「车辆规格」：型号 + 颜色（座位数单独一列，此处不重复展示） */
 function vehicleSpec(v: Vehicle) {
   const parts: string[] = []
   const m = (v.model ?? '').trim()
   const c = (v.color ?? '').trim()
   if (m) parts.push(m)
   if (c) parts.push(c)
-  if (v.seats != null && v.seats > 0) parts.push(`${v.seats}座`)
   return parts.length ? parts.join(' · ') : '—'
 }
 
@@ -454,6 +522,10 @@ function normOrg(v: Vehicle) {
 
 function normBrand(v: Vehicle) {
   return (v.brand ?? '').trim() || EMPTY_OPT
+}
+
+function normVehicleTypeLabel(v: Vehicle) {
+  return (v.vehicle_type_label ?? '').trim() || '未填写'
 }
 
 function escapeRegexChars(s: string) {
@@ -584,6 +656,24 @@ const seatFilterOptions = computed(() => {
   return [...set].filter((n) => n > 0).sort((a, b) => a - b)
 })
 
+/** 车辆类型选项：随使用单位、品牌级联（与座数一致） */
+const vehicleTypeLabelFilterOptions = computed(() => {
+  let base = rows.value
+  if (filterOrgUnit.value !== 'all') {
+    base = base.filter((v) => normOrg(v) === filterOrgUnit.value)
+  }
+  if (filterBrand.value !== 'all') {
+    base = base.filter((v) => normBrand(v) === filterBrand.value)
+  }
+  const set = new Set<string>()
+  for (const v of base) set.add(normVehicleTypeLabel(v))
+  return [...set].sort((a, b) => {
+    if (a === '未填写') return 1
+    if (b === '未填写') return -1
+    return a.localeCompare(b, 'zh-CN')
+  })
+})
+
 const filteredRows = computed(() => {
   const patterns = searchPatternsFromQuery(q.value)
   return rows.value.filter((v) => {
@@ -592,6 +682,9 @@ const filteredRows = computed(() => {
     if (filterBrand.value !== 'all' && normBrand(v) !== filterBrand.value) return false
     if (filterSeats.value !== 'all' && String(v.seats) !== filterSeats.value) return false
     if (filterYear.value !== 'all' && vehicleYearBucket(v) !== filterYear.value) return false
+    if (filterVehicleTypeLabel.value !== 'all' && normVehicleTypeLabel(v) !== filterVehicleTypeLabel.value) {
+      return false
+    }
     if (patterns) {
       const hay = vehicleSearchHaystack(v)
       if (!patterns.every((re) => re.test(hay))) return false
@@ -611,7 +704,7 @@ const pagedTableRows = computed(() => {
   return filteredRows.value.slice(start, start + TABLE_PAGE_SIZE)
 })
 
-watch([q, statusSlice, filterOrgUnit, filterBrand, filterSeats, filterYear], () => {
+watch([q, statusSlice, filterOrgUnit, filterBrand, filterSeats, filterYear, filterVehicleTypeLabel], () => {
   tablePage.value = 1
 })
 
@@ -637,6 +730,12 @@ watch(rows, () => {
     const ok = rows.value.some((v) => vehicleYearBucket(v) === filterYear.value)
     if (!ok) filterYear.value = 'all'
   }
+  if (
+    filterVehicleTypeLabel.value !== 'all' &&
+    !vehicleTypeLabelFilterOptions.value.includes(filterVehicleTypeLabel.value)
+  ) {
+    filterVehicleTypeLabel.value = 'all'
+  }
 })
 
 watch(filterOrgUnit, () => {
@@ -646,11 +745,23 @@ watch(filterOrgUnit, () => {
   if (filterSeats.value !== 'all' && !seatFilterOptions.value.map(String).includes(filterSeats.value)) {
     filterSeats.value = 'all'
   }
+  if (
+    filterVehicleTypeLabel.value !== 'all' &&
+    !vehicleTypeLabelFilterOptions.value.includes(filterVehicleTypeLabel.value)
+  ) {
+    filterVehicleTypeLabel.value = 'all'
+  }
 })
 
 watch(filterBrand, () => {
   if (filterSeats.value !== 'all' && !seatFilterOptions.value.map(String).includes(filterSeats.value)) {
     filterSeats.value = 'all'
+  }
+  if (
+    filterVehicleTypeLabel.value !== 'all' &&
+    !vehicleTypeLabelFilterOptions.value.includes(filterVehicleTypeLabel.value)
+  ) {
+    filterVehicleTypeLabel.value = 'all'
   }
 })
 
@@ -684,6 +795,10 @@ const orgUnitStats = computed(() => {
   return [...items].sort((a, b) => a.name.localeCompare(b.name, 'zh-CN', { sensitivity: 'accent' }))
 })
 const brandStats = computed(() => buildStats((v) => (v.brand || '').trim() || '未知品牌', 8))
+/** 车辆类型标签（与列表「车辆类型」列同源）；随筛选与 metricSlice 变化 */
+const vehicleTypeLabelStats = computed(() =>
+  buildStats((v) => (v.vehicle_type_label || '').trim() || '未填写'),
+)
 /** 座位数分布：按座位数十进制升序；标签仍为「1座」「10座」（内部用数字字符串聚合） */
 const seatStats = computed(() => {
   const items = buildStats((v) => String(Number(v.seats) || 0))
@@ -756,6 +871,84 @@ const seatMax = computed(() => Math.max(...seatStats.value.map((x) => x.value), 
 const registrationYearChartMax = computed(() =>
   Math.max(...registrationYearChart.value.map((x) => x.value), 1),
 )
+
+const vehicleTypeLabelMax = computed(() =>
+  Math.max(...vehicleTypeLabelStats.value.map((x) => x.value), 1),
+)
+
+/** 当前筛选下，该类型在「台数合计」或「里程合计」中的占比 */
+function formatVehicleTypeShare(segmentValue: number) {
+  if (metricSlice.value === 'mileage') {
+    const t = kpi.value.totalMileage
+    if (t <= 0) return '—'
+    return `${((segmentValue / t) * 100).toLocaleString('zh-CN', { maximumFractionDigits: 1 })}%`
+  }
+  const n = filteredRows.value.length
+  if (n <= 0) return '—'
+  return `${((segmentValue / n) * 100).toLocaleString('zh-CN', { maximumFractionDigits: 1 })}%`
+}
+
+/** 条形图「车间」桶名与顶部筛选 filterOrgUnit 的取值对齐 */
+function orgChartKeyToFilter(chartName: string): string {
+  return chartName === '未分配车间' ? EMPTY_OPT : chartName
+}
+
+function scrollChartFilterToTable() {
+  void nextTick(() => {
+    tblWrapRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  })
+}
+
+function onOrgUnitBarClick(x: StatItem) {
+  const key = orgChartKeyToFilter(x.name)
+  filterOrgUnit.value = filterOrgUnit.value === key ? 'all' : key
+  closeOrgUnitCombo()
+  scrollChartFilterToTable()
+}
+
+function onBrandBarClick(x: StatItem) {
+  const key = x.name === '未知品牌' ? EMPTY_OPT : x.name
+  filterBrand.value = filterBrand.value === key ? 'all' : key
+  scrollChartFilterToTable()
+}
+
+function onYearBarClick(row: StatItem) {
+  const key = row.name === '未登记' ? NO_YEAR_OPT : row.name
+  filterYear.value = filterYear.value === key ? 'all' : key
+  scrollChartFilterToTable()
+}
+
+function onSeatBarClick(x: StatItem) {
+  filterSeats.value = filterSeats.value === x.name ? 'all' : x.name
+  scrollChartFilterToTable()
+}
+
+function onVehicleTypeBarClick(x: StatItem) {
+  filterVehicleTypeLabel.value = filterVehicleTypeLabel.value === x.name ? 'all' : x.name
+  scrollChartFilterToTable()
+}
+
+function orgUnitBarActive(x: StatItem) {
+  return filterOrgUnit.value === orgChartKeyToFilter(x.name)
+}
+
+function brandBarActive(x: StatItem) {
+  const key = x.name === '未知品牌' ? EMPTY_OPT : x.name
+  return filterBrand.value === key
+}
+
+function yearBarActive(row: StatItem) {
+  const key = row.name === '未登记' ? NO_YEAR_OPT : row.name
+  return filterYear.value === key
+}
+
+function seatBarActive(x: StatItem) {
+  return filterSeats.value === x.name
+}
+
+function vehicleTypeBarActive(x: StatItem) {
+  return filterVehicleTypeLabel.value === x.name
+}
 
 /** 暖色主题条形渐变，与全局陶土/橄榄/沙色体系一致，按行索引循环 */
 const BAR_FILL_GRADIENTS = [
@@ -1208,27 +1401,38 @@ onUnmounted(() => {
 .charts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  padding: 0 14px 14px;
-  /* 默认 stretch：同行两卡等高（与座位数分布一致） */
+  gap: 14px;
+  padding: 0 14px 16px;
   align-items: stretch;
+  align-content: start;
 }
 
 .chart {
   border: 1px solid var(--cl-border-cream);
   background: var(--cl-white);
   border-radius: 12px;
-  padding: 10px;
+  padding: 12px 12px 10px;
+  min-width: 0;
 }
 
 .chart--wide {
   grid-column: 1 / -1;
 }
 
+.chart--wide .bar-row {
+  grid-template-columns: minmax(72px, 110px) minmax(0, 1fr) minmax(108px, 132px);
+}
+
 .ct {
   font-size: 12px;
   color: var(--cl-olive);
   margin-bottom: 8px;
+}
+
+.ct-hint {
+  font-weight: 400;
+  color: var(--cl-stone);
+  font-size: 11px;
 }
 
 .bars {
@@ -1243,14 +1447,46 @@ onUnmounted(() => {
   padding-right: 4px;
 }
 
-/* 宽屏：2×2 矩阵，四格等高；列表区域占满卡片并在超出时滚动 */
-@media (min-width: 1101px) {
+.chart-note {
+  font-size: 11px;
+  color: var(--cl-stone);
+  margin: -4px 0 8px;
+  line-height: 1.4;
+}
+
+.bar-value--share {
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.bars--empty {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+}
+
+.bars--empty .empty-hint {
+  margin: 0;
+}
+
+/*
+ * 769px 起保持双列（不再在 1100px 以下强制单列），行高随内容伸缩，
+ * 避免固定 grid 高度 + 1fr 行把卡片压扁、条形区被「挤在一起」。
+ */
+@media (min-width: 769px) {
   .charts {
-    grid-template-rows: repeat(2, 1fr);
-    /* 明确高度以便两行 1fr 均分，四块同高 */
-    height: clamp(420px, 46vh, 720px);
-    min-height: clamp(420px, 46vh, 720px);
-    box-sizing: border-box;
+    grid-template-rows: auto auto auto;
+    height: auto;
+    min-height: 0;
+  }
+
+  .chart--wide {
+    flex: 0 0 auto;
+  }
+
+  .chart--wide .bars--scroll {
+    flex: 0 1 auto;
+    max-height: min(300px, 38vh);
   }
 
   .chart {
@@ -1265,17 +1501,41 @@ onUnmounted(() => {
   }
 
   .chart .bars--scroll {
-    flex: 1 1 auto;
-    min-height: 0;
-    max-height: none;
+    flex: 0 1 auto;
+    min-height: 140px;
+    max-height: min(280px, 36vh);
   }
 }
 
 .bar-row {
   display: grid;
-  grid-template-columns: 90px minmax(0, 1fr) 88px;
+  grid-template-columns: minmax(88px, 32%) minmax(0, 1fr) minmax(76px, 88px);
   gap: 8px;
   align-items: center;
+}
+
+button.bar-row {
+  width: 100%;
+  margin: 0;
+  padding: 4px 2px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: start;
+  cursor: pointer;
+  -webkit-tap-highlight-color: rgba(201, 100, 66, 0.12);
+}
+
+button.bar-row:focus-visible {
+  outline: 2px solid var(--cl-terracotta);
+  outline-offset: 1px;
+}
+
+.bar-row--active {
+  background: rgba(201, 100, 66, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(201, 100, 66, 0.22);
 }
 
 .bar-label {
@@ -1304,7 +1564,7 @@ onUnmounted(() => {
     box-shadow 0.16s ease;
 }
 
-.bar-row:hover .bar-fill {
+.bar-row--interactive:hover:not(:disabled) .bar-fill {
   filter: brightness(1.07) saturate(1.05);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.35),
@@ -1590,12 +1850,22 @@ textarea {
 }
 
 @media (max-width: 1100px) {
-  .kpis,
+  .kpis {
+    grid-template-columns: 1fr;
+    grid-template-rows: none;
+    height: auto;
+    min-height: 0;
+  }
+}
+
+/* 仅窄屏单列图表；平板/小笔记本宽度仍可两列并排 */
+@media (max-width: 768px) {
   .charts {
     grid-template-columns: 1fr;
     grid-template-rows: none;
     height: auto;
     min-height: 0;
+    gap: 12px;
   }
 }
 
@@ -1627,14 +1897,17 @@ textarea {
   }
 
   .filters {
-    flex-wrap: wrap;
+    display: grid;
+    /* 表格式多列：窄屏也尽量并排，避免一长串各占一行 */
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 10px;
+    row-gap: 10px;
     flex: none;
     width: 100%;
     min-width: 0;
     overflow-x: visible;
     overflow-y: visible;
-    justify-content: stretch;
-    gap: 10px;
+    align-items: stretch;
     padding-bottom: 0;
     scrollbar-gutter: auto;
     -webkit-overflow-scrolling: auto;
@@ -1642,10 +1915,17 @@ textarea {
 
   .sel,
   .sel-combo {
-    flex: 1 1 100%;
+    flex: none;
+    width: 100%;
     max-width: none;
     min-width: 0;
-    width: 100%;
+  }
+
+  /* 略宽手机 / 小平板：三列，进一步压缩纵向高度 */
+  @media (min-width: 420px) {
+    .filters {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
   }
 
   .sel {

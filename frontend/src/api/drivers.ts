@@ -15,6 +15,8 @@ export type DriverStats = {
   total: number
   by_status: Record<string, number>
   by_license_type: Record<string, number>
+  /** bus_driver.vehicle_type_label 聚合 */
+  by_vehicle_type_label: Record<string, number>
 }
 
 export async function listDrivers(params?: {

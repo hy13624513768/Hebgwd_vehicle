@@ -1,7 +1,7 @@
 <template>
   <div class="stack mobile-capture">
     <section class="panel" :aria-label="panelAriaLabel">
-      <div class="capture-block">
+      <div class="capture-block" :class="{ 'capture-block--single-photo': singlePhoto }">
         <div class="hd">
           <h2>{{ photoHeading }}</h2>
         </div>
@@ -18,11 +18,18 @@
           @change="onPhotoSelected"
         />
 
+        <div v-if="photoPreviewUrl" class="preview-wrap">
+          <img :src="photoPreviewUrl" alt="照片预览" class="preview-img" />
+          <p v-if="photoFileLabel" class="meta">{{ photoFileLabel }}</p>
+        </div>
+
         <div class="actions">
-          <button type="button" class="primary btn" @click="openPhotoPicker">打开相机拍照</button>
+          <button type="button" class="primary btn" @click="openPhotoPicker">
+            {{ photoPrimaryLabel }}
+          </button>
           <button v-if="photoPreviewUrl" type="button" class="ghost btn" @click="clearPhoto">清除照片</button>
           <a
-            v-if="photoPreviewUrl"
+            v-if="photoPreviewUrl && showPhotoDownload"
             class="ghost btn btn--link"
             :href="photoPreviewUrl"
             :download="photoDownloadName"
@@ -30,17 +37,12 @@
             下载图片
           </a>
         </div>
-
-        <div v-if="photoPreviewUrl" class="preview-wrap">
-          <img :src="photoPreviewUrl" alt="照片预览" class="preview-img" />
-          <p v-if="photoFileLabel" class="meta">{{ photoFileLabel }}</p>
-        </div>
       </div>
 
       <template v-if="enableVideo">
         <div class="block-sep" role="separator" aria-hidden="true" />
 
-        <div class="capture-block">
+        <div class="capture-block" :class="{ 'capture-block--single-photo': singleVideo }">
           <div class="hd">
             <h2>{{ videoHeading }}</h2>
           </div>
@@ -51,24 +53,11 @@
             type="file"
             class="sr-only"
             accept="video/*"
-            capture="environment"
+            :capture="videoCaptureAttr"
             aria-hidden="true"
             tabindex="-1"
             @change="onVideoSelected"
           />
-
-          <div class="actions">
-            <button type="button" class="primary btn" @click="openVideoPicker">打开相机录像</button>
-            <button v-if="videoPreviewUrl" type="button" class="ghost btn" @click="clearVideo">清除视频</button>
-            <a
-              v-if="videoPreviewUrl"
-              class="ghost btn btn--link"
-              :href="videoPreviewUrl"
-              :download="videoDownloadName"
-            >
-              下载视频
-            </a>
-          </div>
 
           <div v-if="videoPreviewUrl" class="preview-wrap">
             <video
@@ -80,6 +69,21 @@
             />
             <p v-if="videoFileLabel" class="meta">{{ videoFileLabel }}</p>
           </div>
+
+          <div class="actions">
+            <button type="button" class="primary btn" @click="openVideoPicker">
+              {{ videoPrimaryLabel }}
+            </button>
+            <button v-if="videoPreviewUrl" type="button" class="ghost btn" @click="clearVideo">清除视频</button>
+            <a
+              v-if="videoPreviewUrl && showVideoDownload"
+              class="ghost btn btn--link"
+              :href="videoPreviewUrl"
+              :download="videoDownloadName"
+            >
+              下载视频
+            </a>
+          </div>
         </div>
       </template>
     </section>
@@ -87,7 +91,7 @@
 </template>
 
 <script setup lang="ts">
-import { onUnmounted, ref } from 'vue'
+import { computed, onUnmounted, ref } from 'vue'
 
 const props = withDefaults(
   defineProps<{
@@ -101,6 +105,22 @@ const props = withDefaults(
     /** 下载文件名前缀（无扩展名时自动补 .jpg / .mp4） */
     photoFileBase?: string
     videoFileBase?: string
+    /** 是否展示照片「下载图片」链接（加油单张模式可关闭） */
+    showPhotoDownload?: boolean
+    /** 是否展示视频「下载视频」链接 */
+    showVideoDownload?: boolean
+    /**
+     * 单张照片模式：预览在按钮上方、隐藏下载；已有照片时主按钮文案为「重新拍照」。
+     * 再次选择文件会替换当前照片（仍仅保留一张）。
+     */
+    singlePhoto?: boolean
+    /**
+     * 单段视频模式：与 singlePhoto 类似；主按钮为「录像或上传视频」/「重新选择视频」。
+     * 不设 capture 时（videoInputCapture=false）多数手机可在系统面板中选择录像或相册文件。
+     */
+    singleVideo?: boolean
+    /** 为 true 时在视频 input 上加 capture=environment，更倾向直接调起后置相机（可能弱化相册入口） */
+    videoInputCapture?: boolean
   }>(),
   {
     panelAriaLabel: '移动端拍照与录像',
@@ -113,6 +133,11 @@ const props = withDefaults(
       '在手机浏览器中点击下方按钮可调起相机录像（是否出现录像界面因浏览器与机型而异，部分环境仅支持从相册选取视频）。视频仅在当前页面预览，不会自动上传服务器。',
     photoFileBase: 'capture_photo',
     videoFileBase: 'capture_video',
+    showPhotoDownload: true,
+    showVideoDownload: true,
+    singlePhoto: false,
+    singleVideo: false,
+    videoInputCapture: false,
   },
 )
 
@@ -120,18 +145,31 @@ const photoInputRef = ref<HTMLInputElement | null>(null)
 const videoInputRef = ref<HTMLInputElement | null>(null)
 
 const photoPreviewUrl = ref<string | null>(null)
+const photoFileRef = ref<File | null>(null)
 const photoFileLabel = ref('')
 const photoDownloadName = ref(`${props.photoFileBase}.jpg`)
 
+const photoPrimaryLabel = computed(() =>
+  props.singlePhoto && photoPreviewUrl.value ? '重新拍照' : '打开相机拍照',
+)
+
+const videoCaptureAttr = computed(() => (props.videoInputCapture ? 'environment' : undefined))
+
 const videoPreviewUrl = ref<string | null>(null)
+const videoFileRef = ref<File | null>(null)
 const videoFileLabel = ref('')
 const videoDownloadName = ref(`${props.videoFileBase}.mp4`)
+
+const videoPrimaryLabel = computed(() =>
+  props.singleVideo && videoPreviewUrl.value ? '重新选择视频' : '录像或上传视频',
+)
 
 function revokePhoto() {
   if (photoPreviewUrl.value) {
     URL.revokeObjectURL(photoPreviewUrl.value)
     photoPreviewUrl.value = null
   }
+  photoFileRef.value = null
   photoFileLabel.value = ''
 }
 
@@ -140,6 +178,7 @@ function revokeVideo() {
     URL.revokeObjectURL(videoPreviewUrl.value)
     videoPreviewUrl.value = null
   }
+  videoFileRef.value = null
   videoFileLabel.value = ''
 }
 
@@ -168,6 +207,7 @@ function onPhotoSelected(ev: Event) {
   if (!file || !file.type.startsWith('image/')) return
 
   revokePhoto()
+  photoFileRef.value = file
   photoFileLabel.value = file.name ? `${file.name} · ${formatSize(file.size)}` : formatSize(file.size)
   photoPreviewUrl.value = URL.createObjectURL(file)
   const base = sanitizeBaseName(file.name || props.photoFileBase)
@@ -185,6 +225,7 @@ function onVideoSelected(ev: Event) {
   if (!file || !file.type.startsWith('video/')) return
 
   revokeVideo()
+  videoFileRef.value = file
   videoFileLabel.value = file.name ? `${file.name} · ${formatSize(file.size)}` : formatSize(file.size)
   videoPreviewUrl.value = URL.createObjectURL(file)
   const base = sanitizeBaseName(file.name || props.videoFileBase)
@@ -210,6 +251,14 @@ function clearVideo() {
 onUnmounted(() => {
   revokePhoto()
   revokeVideo()
+})
+
+defineExpose({
+  /** 当前选中的加油/现场照片文件（未选则为 null） */
+  getPhotoFile: () => photoFileRef.value,
+  clearPhoto,
+  getVideoFile: () => videoFileRef.value,
+  clearVideo,
 })
 </script>
 
@@ -284,7 +333,7 @@ onUnmounted(() => {
   flex-wrap: wrap;
   gap: 10px;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 0;
 }
 
 .btn {
@@ -320,10 +369,15 @@ onUnmounted(() => {
 }
 
 .preview-wrap {
+  margin-bottom: 14px;
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid var(--cl-border-cream, rgba(142, 132, 109, 0.25));
   background: rgba(255, 255, 255, 0.6);
+}
+
+.capture-block--single-photo .preview-wrap {
+  margin-bottom: 18px;
 }
 
 .preview-img {

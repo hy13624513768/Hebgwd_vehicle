@@ -82,3 +82,91 @@ npm run build
 ```
 
 更多字段说明见仓库内 `backend/.env.example` 与 `frontend/.env.example`。
+
+---
+
+## Sealos 部署：PostgreSQL 连接（集群内）
+
+后端 Pod 与 Sealos「数据库」应用在**同一 Kubernetes 集群**时，使用 **Service 的集群内 DNS**，无需经过公网。
+
+示例（命名空间、Service 名以控制台为准）：
+
+| 项 | 示例值 |
+| --- | --- |
+| 主机 | `bus-system-postgresql.ns-1ht608x0.svc` |
+| 端口 | `5432` |
+| 数据库名 | `bus_system_test` |
+| 用户 | `postgres`（或控制台给出的超级用户） |
+
+后端 `DATABASE_URL`（SQLAlchemy）示例：
+
+```env
+DATABASE_URL=postgresql+psycopg2://postgres:<Sealos控制台密码>@bus-system-postgresql.ns-1ht608x0.svc:5432/bus_system_test
+```
+
+建议在 Sealos 应用配置中使用**密钥 / 环境变量**注入密码，不要写入镜像或公开仓库。若 Namespace 或 Service 名称变更，请同步修改 `backend/.env` 与 `app/core/config.py` 中的默认主机（或通过环境变量覆盖 `DATABASE_URL`）。
+
+---
+
+## Sealos 部署：用 Docker 镜像跑后端与前端（推荐）
+
+仓库已提供：
+
+- `backend/Dockerfile`：FastAPI + Uvicorn，监听 **8000**
+- `frontend/Dockerfile`：构建 Vue 后用 **Nginx** 提供静态页，监听 **80**
+
+本地构建示例（构建完成后将镜像推送到 Sealos / 任意镜像仓库，再在控制台创建应用）：
+
+```bash
+# 后端（镜像名请改成你自己的命名空间）
+docker build -t your-registry/hebgwd-backend:latest ./backend
+
+# 前端：必须传入后端「公网」根地址（无尾斜杠），与浏览器访问 API 的域名一致
+docker build -t your-registry/hebgwd-frontend:latest \
+  --build-arg VITE_API_BASE_URL=https://你的后端Sealos公网地址 \
+  ./frontend
+```
+
+在 **Sealos 应用市场 / 容器部署** 中建议拆成 **两个应用**：
+
+### 应用 A：后端 API
+
+| 配置项 | 说明 |
+| --- | --- |
+| 镜像 | 上述 `hebgwd-backend` |
+| 容器端口 | `8000` |
+| 对外暴露 | 开启 HTTPS 公网访问，记下例如 `https://xxxx.sealosbja.site` |
+| 环境变量 | 见下表（与 `backend/.env.example` 一致，勿把密码写进镜像） |
+
+**后端环境变量（在 Sealos 控制台填写）**
+
+| 变量名 | 说明 |
+| --- | --- |
+| `ENVIRONMENT` | `production` |
+| `DATABASE_URL` | `postgresql+psycopg2://postgres:<密码>@bus-system-postgresql.<你的Namespace>.svc:5432/bus_system_test` |
+| `JWT_SECRET` | 随机长串 |
+| `JWT_EXPIRE_MINUTES` | 如 `120` |
+| `CORS_ORIGINS` | 前端公网 Origin，如 `https://fhlkzwzoizzu.sealosbja.site`（多个用英文逗号） |
+| `DEMO_SEEDING_ENABLED` | 生产建议 `false` |
+| `BOOTSTRAP_ADMIN_USERNAME` / `BOOTSTRAP_ADMIN_PASSWORD` / `BOOTSTRAP_ADMIN_DISPLAY_NAME` | 按需 |
+
+Pydantic 会读取这些环境变量（与 `.env` 同名）；**无需**在镜像里拷贝 `.env` 文件。
+
+### 应用 B：前端静态站点
+
+| 配置项 | 说明 |
+| --- | --- |
+| 镜像 | 上述 `hebgwd-frontend`（构建时已写入 `VITE_API_BASE_URL` 指向后端公网地址） |
+| 容器端口 | `80` |
+| 对外暴露 | 前端域名，如 `https://fhlkzwzoizzu.sealosbja.site` |
+
+**顺序**：先部署后端并确认 `GET https://后端公网/health` 正常，再用该后端地址构建前端镜像并部署前端。若后端域名变更，需**重新构建**前端镜像并更新 `VITE_API_BASE_URL`。
+
+### 高德地图
+
+前端需在构建镜像时传入（或在 Sealos 构建参数里配置）：
+
+- `VITE_AMAP_KEY`
+- `VITE_AMAP_SECURITY_JSCODE`
+
+可将 `frontend/Dockerfile` 中相应 `ARG` / `ENV` 扩展两行后重新构建（或在 CI 里用 `--build-arg` 传入）。

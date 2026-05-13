@@ -30,6 +30,8 @@ export type Driver = {
   name: string
   phone: string
   license_type: string
+  /** 与 bus_vehicle.vehicle_type_label 字段名一致 */
+  vehicle_type_label: string
   status: string
   id_card: string | null
   health_check_report: string | null

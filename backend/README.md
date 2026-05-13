@@ -6,7 +6,8 @@
 
 ## 配置
 
-将 `backend/.env.example` 复制为 `backend/.env` 并按需修改数据库连接与 `JWT_SECRET`。
+将 `backend/.env.example` 复制为 `backend/.env` 并按需修改数据库连接与 `JWT_SECRET`。  
+默认示例指向 **Sealos 集群内 PostgreSQL**；本地开发请改用 `.env.example` 末尾注释中的 `127.0.0.1:55432`（或你的本机/Docker 端口）。
 
 **正式上线、多环境（测试/预发/生产）配置要点**见仓库根目录 `docs/deployment.md`。
 

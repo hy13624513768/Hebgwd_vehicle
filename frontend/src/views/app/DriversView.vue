@@ -142,6 +142,7 @@
             <th>姓名</th>
             <th>电话</th>
             <th>准驾</th>
+            <th>车辆类型标签</th>
             <th>状态</th>
             <th>身份证号</th>
             <th>健康体检报告</th>
@@ -152,13 +153,14 @@
         </thead>
         <tbody>
           <tr v-if="rows.length === 0">
-            <td :colspan="canManageFleet ? 10 : 9" class="empty-hint">暂无数据，可调整筛选后点击查询。</td>
+            <td :colspan="canManageFleet ? 11 : 10" class="empty-hint">暂无数据，可调整筛选后点击查询。</td>
           </tr>
           <tr v-for="(d, idx) in rows" :key="d.id">
             <td class="muted">{{ displayRowSeq(idx) }}</td>
             <td class="strong">{{ d.name }}</td>
             <td>{{ d.phone }}</td>
             <td>{{ d.license_type || '—' }}</td>
+            <td class="t" :title="d.vehicle_type_label || ''">{{ d.vehicle_type_label || '—' }}</td>
             <td>{{ d.status || '—' }}</td>
             <td class="mono">{{ d.id_card || '—' }}</td>
             <td class="col-long" :title="d.health_check_report || ''">{{ trunc(d.health_check_report, 24) }}</td>
@@ -191,6 +193,10 @@
             <div class="driver-card__row">
               <span class="driver-card__k">准驾</span>
               <span class="driver-card__v">{{ d.license_type || '—' }}</span>
+            </div>
+            <div class="driver-card__row">
+              <span class="driver-card__k">车辆类型</span>
+              <span class="driver-card__v">{{ d.vehicle_type_label || '—' }}</span>
             </div>
             <div class="driver-card__row">
               <span class="driver-card__k">身份证</span>
@@ -262,6 +268,9 @@
         <label>准驾</label>
         <input v-model.trim="form.license_type" placeholder="如 A1、C1" />
 
+        <label>车辆类型标签</label>
+        <input v-model.trim="form.vehicle_type_label" placeholder="与车辆登记「车辆类型」一致，如 小型轿车" />
+
         <label>状态</label>
         <input v-model.trim="form.status" placeholder="如 在岗" />
 
@@ -325,6 +334,7 @@ const form = reactive({
   name: '',
   phone: '',
   license_type: '',
+  vehicle_type_label: '',
   status: '',
   id_card: '',
   health_check_report: '',
@@ -579,6 +589,7 @@ function resetForm() {
   form.name = ''
   form.phone = ''
   form.license_type = ''
+  form.vehicle_type_label = ''
   form.status = ''
   form.id_card = ''
   form.health_check_report = ''
@@ -599,6 +610,7 @@ function openEdit(d: Driver) {
   form.name = d.name
   form.phone = d.phone
   form.license_type = d.license_type
+  form.vehicle_type_label = d.vehicle_type_label || ''
   form.status = d.status
   form.id_card = d.id_card || ''
   form.health_check_report = d.health_check_report || ''
@@ -615,6 +627,7 @@ async function save() {
       name: form.name,
       phone: form.phone,
       license_type: form.license_type,
+      vehicle_type_label: form.vehicle_type_label,
       status: form.status,
       id_card: form.id_card || null,
       health_check_report: form.health_check_report || null,

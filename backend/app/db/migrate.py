@@ -70,6 +70,10 @@ def run_runtime_migrations() -> None:
             driver_adds.append("ALTER TABLE bus_driver ADD COLUMN outsourcing_onboarding TEXT NULL")
         if "first_hire_date" not in cols:
             driver_adds.append("ALTER TABLE bus_driver ADD COLUMN first_hire_date DATE NULL")
+        if "vehicle_type_label" not in cols:
+            driver_adds.append(
+                "ALTER TABLE bus_driver ADD COLUMN vehicle_type_label VARCHAR(64) NOT NULL DEFAULT ''"
+            )
         if driver_adds:
             with engine.begin() as conn:
                 for stmt in driver_adds:
@@ -195,6 +199,19 @@ def run_runtime_migrations() -> None:
             with engine.begin() as conn:
                 try:
                     conn.execute(text("ALTER TABLE bus_fuel_record ADD COLUMN workshop VARCHAR(128) NOT NULL DEFAULT ''"))
+                except ProgrammingError:
+                    pass
+
+    if insp.has_table("bus_nav_preset"):
+        cols = {c["name"] for c in insp.get_columns("bus_nav_preset")}
+        if "is_locked" not in cols:
+            with engine.begin() as conn:
+                try:
+                    conn.execute(
+                        text(
+                            "ALTER TABLE bus_nav_preset ADD COLUMN is_locked BOOLEAN NOT NULL DEFAULT true"
+                        )
+                    )
                 except ProgrammingError:
                     pass
 

@@ -20,6 +20,7 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         bootstrap_admin_if_needed(db)
+        seed_service.seed_nav_presets_if_empty(db)
         if settings.demo_seeding_enabled:
             seed_service.seed_standard_accounts(db)
             seed_service.seed_demo_if_empty(db)

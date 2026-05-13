@@ -1188,6 +1188,9 @@ async function onLogout() {
   transition: transform 0.28s cubic-bezier(0.33, 1, 0.68, 1);
   box-shadow: 12px 0 40px rgba(20, 20, 19, 0.14);
   align-self: stretch;
+  /* 抽屉内更紧凑，单列入口（工作台、段内导航等）间距更易扫读 */
+  padding: 14px 12px 16px;
+  padding-top: max(14px, env(safe-area-inset-top, 0px));
 }
 
 .shell--mobile .aside.aside--mobile-open {
@@ -1238,21 +1241,80 @@ async function onLogout() {
   padding-bottom: max(28px, env(safe-area-inset-bottom, 0px));
 }
 
-.shell--mobile .nav-item {
-  min-height: 46px;
-  padding-top: 12px;
+.shell--mobile .brand {
   padding-bottom: 12px;
+  margin-bottom: 4px;
+}
+
+.shell--mobile .brand-accent {
+  margin-bottom: 8px;
+}
+
+.shell--mobile .brand-title {
+  font-size: 0.95rem;
+  line-height: 1.3;
+}
+
+.shell--mobile .brand-sub {
+  margin-top: 6px;
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.shell--mobile .nav-label {
+  margin: 10px 0 6px 2px;
+}
+
+.shell--mobile .nav {
+  gap: 2px;
+}
+
+.shell--mobile .nav-group {
+  gap: 2px;
+}
+
+.shell--mobile .nav-group__children {
+  gap: 2px;
+  padding-left: 6px;
+  margin-left: 14px;
+}
+
+.shell--mobile .nav-item--root + .nav-group:not(.nav-group--rail) {
+  margin-top: 4px;
+  padding-top: 6px;
+}
+
+.shell--mobile .nav-group--rail + .nav-group--rail,
+.shell--mobile .nav-item--root + .nav-group--rail {
+  margin-top: 4px;
+  padding-top: 6px;
+}
+
+.shell--mobile .nav-item {
+  min-height: 40px;
+  padding: 8px 12px 8px 14px;
+  font-size: 0.875rem;
+  gap: 10px;
+  touch-action: manipulation;
 }
 
 .shell--mobile .nav-group__trigger {
-  min-height: 46px;
-  padding-top: 12px;
-  padding-bottom: 12px;
+  min-height: 40px;
+  padding: 8px 12px 8px 14px;
+  font-size: 0.875rem;
+  gap: 10px;
   touch-action: manipulation;
 }
 
 .shell--mobile .nav-item--child {
-  min-height: 46px;
+  min-height: 38px;
+  padding: 7px 10px 7px 12px;
+  font-size: 0.8125rem;
+  gap: 8px;
+}
+
+.shell--mobile .nav-item.router-link-active::before {
+  max-height: 22px;
 }
 
 @media (min-width: 480px) {

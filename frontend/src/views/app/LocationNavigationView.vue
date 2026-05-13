@@ -3,15 +3,63 @@
     <header class="loc-nav__head">
       <h1 class="loc-nav__title">段内导航</h1>
       <p class="loc-nav__desc muted">
-        基于高德地图 JSAPI，可扩展检索、定位与路径规划。密钥来自本地 <code>.env.local</code>，勿提交版本库。
+        基于高德地图 JSAPI，支持检索与高德导航跳转。
       </p>
+      <p v-if="presetsLoadError" class="loc-nav__warn" role="alert">{{ presetsLoadError }}</p>
     </header>
-    <AmapContainer class="loc-nav__map" show-driving-route use-realtime-origin />
+    <AmapContainer
+      v-model:preset-markers="navPresetMarkers"
+      class="loc-nav__map"
+      :marker-navigate-on-click="false"
+      :allow-marker-edit="canEditMapLocations"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
+import { onMounted, ref, watch } from 'vue'
+
+import { fetchNavPresets, replaceNavPresets } from '@/api/navPresets'
 import AmapContainer from '@/components/AmapContainer.vue'
+import { DEFAULT_PRESET_MARKERS, type PresetMarker } from '@/lib/amapPresets'
+import { usePermissions } from '@/composables/usePermissions'
+
+function cloneDefaults(): PresetMarker[] {
+  return DEFAULT_PRESET_MARKERS.map((p) => ({ ...p }))
+}
+
+const navPresetMarkers = ref<PresetMarker[]>(cloneDefaults())
+const presetsLoadError = ref<string | null>(null)
+const presetsHydrated = ref(false)
+const { canEditMapLocations } = usePermissions()
+
+onMounted(async () => {
+  try {
+    const markers = await fetchNavPresets()
+    navPresetMarkers.value = markers.length > 0 ? markers : cloneDefaults()
+  } catch {
+    presetsLoadError.value = '无法从服务器加载预设点，已暂时使用默认位置。请检查网络或重新登录。'
+    navPresetMarkers.value = cloneDefaults()
+  } finally {
+    presetsHydrated.value = true
+  }
+})
+
+let saveTimer: ReturnType<typeof setTimeout> | null = null
+watch(
+  navPresetMarkers,
+  (v) => {
+    if (!presetsHydrated.value || !canEditMapLocations.value) return
+    if (v.length === 0) return
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = setTimeout(() => {
+      void replaceNavPresets(v).catch(() => {
+        alert('保存预设点到服务器失败，请检查网络或权限后重试')
+      })
+    }, 650)
+  },
+  { deep: true },
+)
 </script>
 
 <style scoped>
@@ -35,6 +83,12 @@ import AmapContainer from '@/components/AmapContainer.vue'
   margin: 0;
   font-size: 0.875rem;
   line-height: 1.55;
+}
+
+.loc-nav__warn {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  color: #a63d2d;
 }
 
 .loc-nav__desc code {

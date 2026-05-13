@@ -36,3 +36,8 @@ export async function me(): Promise<UserInfo> {
   const { data } = await http.get<UserInfo>('/auth/me')
   return data
 }
+
+/** 校验当前登录账号的密码（用于敏感操作二次确认） */
+export async function verifyCurrentPassword(payload: { password: string }): Promise<void> {
+  await http.post('/auth/verify-password', payload)
+}
