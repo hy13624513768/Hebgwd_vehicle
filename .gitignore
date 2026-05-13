@@ -28,3 +28,6 @@ Thumbs.db
 
 # 脚本临时输出（可能含本地路径或数据片段）
 backend/scripts/_excel_inspect_out.txt
+
+# 推送 ACR 用的本地变量（勿提交）
+.env.acr
