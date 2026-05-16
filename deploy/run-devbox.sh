@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Sealos DevBox：同时启动后端（8000）与前端（8080），通过控制台分配的 HTTPS 域名访问前端。
-# 前端会把 /api 代理到本机 8000；后端 .env 里 CORS_ORIGINS 需包含该 HTTPS 域名。
+# Sealos DevBox：同时启动后端（8000）与前端（8080，见 vite.config）。
+# 前端通过 Vite 把 /api 代理到本机 8000；后端 .env 里 CORS_ORIGINS 需包含控制台分配的 HTTPS 前端域名。
+# 用法：cd hebgwd_vehicle && bash deploy/run-devbox.sh
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACK="$ROOT/backend"
@@ -13,7 +14,7 @@ fi
 
 echo "后端: http://0.0.0.0:8000  |  前端(Vite): http://0.0.0.0:8080"
 echo "提示: 修改 backend/.env（尤其是 DATABASE_URL）后必须重启后端进程，否则仍会连旧库、页面无数据。"
-echo "Sealos 控制台请将公网入口映射到容器 8080；浏览器访问例如 https://fhlkzwzoizzu.sealosbja.site"
+echo "Sealos 控制台请将公网入口映射到容器 8080；线上前端公网示例见 deploy/urls.env.example"
 echo "若热更新失败，请在 frontend 目录复制 .env.development.local.example 为 .env.development.local"
 echo ""
 

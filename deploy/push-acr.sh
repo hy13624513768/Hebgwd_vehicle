@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 构建并推送前后端镜像到阿里云容器镜像服务 ACR（华北2 北京）
-# 用法见仓库内 .env.acr.example；也可在命令前 export 变量后执行本脚本。
+# 用法：cd hebgwd_vehicle && bash deploy/push-acr.sh
+# 变量见 .env.acr.example；也可在命令前 export 后执行。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

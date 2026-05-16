@@ -1,12 +1,14 @@
 #!/bin/bash
 # 在点击 Sealos DevBox「发布版本」之前，在终端执行本脚本（见官方文档「准备应用程序」）。
+# 用法：cd hebgwd_vehicle && bash deploy/prep-release-backend.sh
 # https://sealos.run/docs/guides/fundamentals/release
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-chmod +x "$ROOT/entrypoint.sh" 2>/dev/null || true
+chmod +x "$ROOT/entrypoint.sh" "$ROOT/deploy/entrypoint-backend.sh" "$ROOT/deploy/entrypoint-frontend.sh" 2>/dev/null || true
+chmod +x "$ROOT/../entrypoint.sh" 2>/dev/null || true
 
 echo ">>> 创建/更新后端虚拟环境并安装依赖（requirements.txt）…"
 cd "$ROOT/backend"

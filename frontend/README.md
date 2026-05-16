@@ -16,7 +16,7 @@ npm run dev
 2. 后端 `backend/.env` 里 **`CORS_ORIGINS`** 须包含该 HTTPS 地址（无尾斜杠）。
 3. 若经公网访问时 **热更新（HMR）不工作**，将 `frontend/.env.development.local.example` 复制为 **`frontend/.env.development.local`**，并设置  
    `SEALOS_DEV_PUBLIC_HOST=fhlkzwzoizzu.sealosbja.site`（仅主机名，不要写 `https://`）。
-4. 仓库根目录提供一并启动脚本：`bash scripts/run-devbox.sh`（需先有 `backend/.env`）。
+4. 在本目录上一级（`hebgwd_vehicle`）执行一并开发：`bash deploy/run-devbox.sh`（需先有 `backend/.env`）。
 
 ## 构建
 

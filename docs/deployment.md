@@ -2,6 +2,7 @@
 
 本文说明正式上线前建议完成的配置，以及如何区分**测试 / 预发 / 生产**等环境。代码层面已支持：
 
+- **Sealos / DevBox 入口与运维脚本均在 `deploy/`**：`entrypoint-backend.sh`、`entrypoint-frontend.sh`、`prep-release-backend.sh`（发版前准备）、`run-devbox.sh`（前后端同时开发）、`push-acr.sh`（构建推送镜像）、`urls.env.example`
 - 后端：`ENVIRONMENT`、`DEMO_SEEDING_ENABLED`、`CORS_ORIGINS`（见 `backend/.env.example`）
 - 前端：`VITE_API_BASE_URL`、`VITE_APP_ENV`、高德 Key（见 `frontend/.env.example`）
 - 健康检查：`GET /health` 返回 `environment` 字段
@@ -146,7 +147,7 @@ docker build -t your-registry/hebgwd-frontend:latest \
 | `DATABASE_URL` | `postgresql+psycopg2://postgres:<密码>@bus-system-postgresql.<你的Namespace>.svc:5432/bus_system_test` |
 | `JWT_SECRET` | 随机长串 |
 | `JWT_EXPIRE_MINUTES` | 如 `120` |
-| `CORS_ORIGINS` | 前端公网 Origin，如 `https://fhlkzwzoizzu.sealosbja.site`（多个用英文逗号） |
+| `CORS_ORIGINS` | 前端公网 Origin，如 `https://xwyommoychvz.sealosbja.site`（多个用英文逗号；可与 `deploy/urls.env.example` 对齐） |
 | `DEMO_SEEDING_ENABLED` | 生产建议 `false` |
 | `BOOTSTRAP_ADMIN_USERNAME` / `BOOTSTRAP_ADMIN_PASSWORD` / `BOOTSTRAP_ADMIN_DISPLAY_NAME` | 按需 |
 
@@ -158,7 +159,7 @@ Pydantic 会读取这些环境变量（与 `.env` 同名）；**无需**在镜�
 | --- | --- |
 | 镜像 | 上述 `hebgwd-frontend`（构建时已写入 `VITE_API_BASE_URL` 指向后端公网地址） |
 | 容器端口 | `80` |
-| 对外暴露 | 前端域名，如 `https://fhlkzwzoizzu.sealosbja.site` |
+| 对外暴露 | 前端域名，如 `https://xwyommoychvz.sealosbja.site` |
 
 **顺序**：先部署后端并确认 `GET https://后端公网/health` 正常，再用该后端地址构建前端镜像并部署前端。若后端域名变更，需**重新构建**前端镜像并更新 `VITE_API_BASE_URL`。
 
