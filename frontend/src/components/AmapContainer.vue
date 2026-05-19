@@ -185,6 +185,15 @@ VITE_AMAP_SECURITY_JSCODE=对应安全密钥</pre>
             <span v-if="isCoarsePointer" class="amap-lock-hint">锁定后不可拖点/选点；可改上方坐标后保存。</span>
             <span v-else class="amap-lock-hint">锁定后无法在地图上拖动或选点，避免误触；仍可在上方改坐标后保存。</span>
           </div>
+          <p
+            v-if="lockStatusTip"
+            class="amap-editor-tip amap-editor-tip--lock-status"
+            :class="{ 'amap-editor-tip--lock-status-unlocked': !currentPresetLocked }"
+            role="status"
+            aria-live="polite"
+          >
+            {{ lockStatusTip }}
+          </p>
           <div class="amap-editor-actions amap-editor-actions--split">
             <button type="button" class="amap-editor-btn" @click="addPresetMarkerPoint">新增标记</button>
             <button
@@ -197,8 +206,13 @@ VITE_AMAP_SECURITY_JSCODE=对应安全密钥</pre>
             </button>
           </div>
           <div class="amap-editor-actions">
-            <button type="button" class="amap-editor-btn amap-editor-btn--primary" @click="applyMarkerEdit">
-              保存当前标记
+            <button
+              type="button"
+              class="amap-editor-btn amap-editor-btn--primary"
+              :disabled="presetsSaving"
+              @click="applyMarkerEdit"
+            >
+              {{ presetsSaving ? '保存中…' : '保存当前标记' }}
             </button>
             <button
               type="button"
@@ -220,6 +234,9 @@ VITE_AMAP_SECURITY_JSCODE=对应安全密钥</pre>
           </button>
           <p v-if="mapPickActive" class="amap-editor-tip amap-editor-tip--pick">
             {{ mapPickHintText }}
+          </p>
+          <p v-if="manualPresetPersist" class="amap-editor-tip amap-editor-tip--persist">
+            新增或修改标记后，须点击「保存当前标记」才会写入服务器。
           </p>
           <p class="amap-editor-tip">{{ dragHintText }}</p>
         </div>
@@ -370,7 +387,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import * as authApi from '@/api/auth'
 import { isAmapKeyConfigured, isAmapSecurityConfigured, loadAmap, openAmapNavigationTo } from '@/lib/amap'
-import { DEFAULT_PRESET_MARKERS, isPresetPositionLocked, type PresetMarker } from '@/lib/amapPresets'
+import { DEFAULT_PRESET_MARKERS, type PresetMarker } from '@/lib/amapPresets'
 
 const canLoadMap = computed(() => isAmapKeyConfigured())
 const warnSecurityOnly = computed(() => canLoadMap.value && !isAmapSecurityConfigured())
@@ -399,6 +416,12 @@ const props = withDefaults(
      * 业务页应按角色传入：仅段级/车间级等管理员为 true，驾驶员等应为 false。
      */
     allowMarkerEdit?: boolean
+    /**
+     * 为 true 时，新增/修改/删除仅更新本地列表；须点「保存当前标记」后由父级写入服务器。
+     */
+    manualPresetPersist?: boolean
+    /** 父级正在写入服务器时禁用保存按钮 */
+    presetsSaving?: boolean
   }>(),
   {
     zoom: 14,
@@ -407,8 +430,15 @@ const props = withDefaults(
     markerNavigateOnClick: false,
     showDestinationPicker: true,
     allowMarkerEdit: false,
+    manualPresetPersist: false,
+    presetsSaving: false,
   },
 )
+
+const emit = defineEmits<{
+  /** 用户点击「保存当前标记」且本地校验通过后，请父级写入数据库 */
+  'presets-persist-request': []
+}>()
 
 /** 预设/可管理标记点列表，支持 v-model:preset-markers 在父级持久化 */
 const presetMarkers = defineModel<PresetMarker[]>('presetMarkers', {
@@ -472,9 +502,31 @@ watch([baseLayerType, showRoadNet, showTraffic], () => {
 
 const selectedPresetIndex = ref(findInitialPresetIndex())
 
-const currentPresetLocked = computed(() =>
-  isPresetPositionLocked(presetMarkers.value[selectedPresetIndex.value]),
-)
+/**
+ * 仅在本页会话内、用户点击「解锁拖动」后才允许地图上拖动该点。
+ * 不写入 presetMarkers.locked，避免服务端历史 locked:false 导致首次打开即可拖。
+ */
+const mapDragUnlockedIndices = ref<Set<number>>(new Set())
+
+function isPresetMapDragAllowed(index: number): boolean {
+  if (!props.allowMarkerEdit || index < 0) return false
+  return mapDragUnlockedIndices.value.has(index)
+}
+
+function isPresetUiLocked(index: number): boolean {
+  return !isPresetMapDragAllowed(index)
+}
+
+function reindexMapDragUnlockedAfterRemove(removedIdx: number) {
+  const next = new Set<number>()
+  for (const i of mapDragUnlockedIndices.value) {
+    if (i < removedIdx) next.add(i)
+    else if (i > removedIdx) next.add(i - 1)
+  }
+  mapDragUnlockedIndices.value = next
+}
+
+const currentPresetLocked = computed(() => isPresetUiLocked(selectedPresetIndex.value))
 
 /** 预设目的地：展开后在内置框中按名称关键字筛选 */
 const presetComboOpen = ref(false)
@@ -496,13 +548,13 @@ const filteredPresetComboIndices = computed(() => {
 const currentPresetLabel = computed(() => {
   const m = presetMarkers.value[selectedPresetIndex.value]
   if (!m) return presetMarkers.value.length === 0 ? '暂无预设点' : '请选择'
-  return `${m.name}${isPresetPositionLocked(m) ? '（已锁定）' : ''}`
+  return `${m.name}${isPresetUiLocked(selectedPresetIndex.value) ? '（已锁定）' : ''}`
 })
 
 function presetComboOptionLabel(i: number): string {
   const m = presetMarkers.value[i]
   if (!m) return ''
-  return `${m.name}${isPresetPositionLocked(m) ? '（已锁定）' : ''}`
+  return `${m.name}${isPresetUiLocked(i) ? '（已锁定）' : ''}`
 }
 
 function closePresetCombo() {
@@ -530,8 +582,7 @@ function syncMarkerDraggability() {
   try {
     mainMarker?.setDraggable?.(d)
     for (let i = 0; i < presetOverlayMarkers.length; i++) {
-      const locked = isPresetPositionLocked(presetMarkers.value[i])
-      presetOverlayMarkers[i]?.setDraggable?.(d && !locked)
+      presetOverlayMarkers[i]?.setDraggable?.(d && isPresetMapDragAllowed(i))
     }
   } catch {
     /* ignore */
@@ -541,14 +592,17 @@ function syncMarkerDraggability() {
 watch(
   () => props.allowMarkerEdit,
   (v) => {
-    if (!v) showMarkerEditor.value = false
+    if (!v) {
+      showMarkerEditor.value = false
+      mapDragUnlockedIndices.value = new Set()
+    }
     syncMarkerDraggability()
     if (!mapRaw || !amapNS) return
     if (presetMarkers.value.length > 0) {
       installPresetOverlays(amapNS)
     } else if (mainMarker) {
       try {
-        mainMarker.setLabel(buildMarkerLabelOptions(amapNS, props.markerTitle, v))
+        mainMarker.setLabel(buildMarkerLabelOptions(amapNS, props.markerTitle))
       } catch {
         /* ignore */
       }
@@ -572,6 +626,9 @@ const deletePwdOpen = ref(false)
 const deletePwdField = ref('')
 const deletePwdVerifying = ref(false)
 const deletePwdInputRef = ref<HTMLInputElement | null>(null)
+/** 点击锁定/解锁后短暂显示的状态说明 */
+const lockStatusTip = ref('')
+let lockStatusTipTimer: ReturnType<typeof setTimeout> | null = null
 const deviceLocateLoading = ref(false)
 const mapPickActive = ref(false)
 /** 触摸/笔等粗指针设备（典型为手机），用于提示文案与交互提示 */
@@ -644,11 +701,13 @@ watch(
   (list) => {
     if (list.length === 0) closePresetCombo()
     if (selectedPresetIndex.value >= list.length) {
-      selectedPresetIndex.value = Math.max(0, list.length - 1)
+      selectPresetAtIndex(Math.max(0, list.length - 1))
     }
     if (mapRaw && amapNS) {
       if (list.length > 0) {
-        installPresetOverlays(amapNS)
+        if (!skipPresetOverlayReinstall) {
+          installPresetOverlays(amapNS)
+        }
       } else {
         destroyPresetOverlays()
       }
@@ -656,6 +715,16 @@ watch(
   },
   { deep: true },
 )
+
+/** 选中项变化时，编辑区与下拉框展示始终跟列表中该点名称一致 */
+watch(selectedPresetIndex, () => {
+  lockStatusTip.value = ''
+  if (lockStatusTipTimer) {
+    clearTimeout(lockStatusTipTimer)
+    lockStatusTipTimer = null
+  }
+  syncEditorFromSelectedPreset()
+})
 
 /** 当前「点击标记导航」的目标（与标记位置同步） */
 const navTarget = ref({
@@ -675,6 +744,10 @@ let mainMarker: any = null
 let presetOverlayMarkers: any[] = []
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let geolocationRaw: any = null
+/** 重建地图标记时忽略 click，避免误改 selectedPresetIndex 导致下拉框与编辑框名称不一致 */
+let suppressPresetMarkerPick = false
+/** 拖拽结束仅改坐标时跳过重装覆盖物，避免松手瞬间名称与图标重叠 */
+let skipPresetOverlayReinstall = false
 
 function escapeLabelHtml(s: string) {
   return String(s)
@@ -688,16 +761,40 @@ function buildMarkerLabelHtml(text: string) {
   return `<span style="display:inline-block;padding:4px 10px;background:rgba(253,252,247,.96);border:none;border-radius:8px;font-size:12px;font-weight:600;color:#2c2825;white-space:nowrap;box-shadow:0 2px 10px rgba(20,20,19,.1);">${t}</span>`
 }
 
-/** 可拖动时开启 raiseOnDrag，标签需额外上移，否则拖动抬起时常与图标重叠 */
-const MARKER_LABEL_OFFSET_Y_LOCKED = -8
-const MARKER_LABEL_OFFSET_Y_DRAGGABLE = -44
+/** 名称标签相对图钉尖端的纵向偏移（负值=向上）；略小于图标高度，保持贴近但不重叠 */
+const MARKER_LABEL_OFFSET_Y = -20
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function buildMarkerLabelOptions(AMap: any, name: string, canDrag: boolean) {
+function buildMarkerLabelOptions(AMap: any, name: string) {
   return {
     content: buildMarkerLabelHtml(name),
     direction: 'top' as const,
-    offset: new AMap.Pixel(0, canDrag ? MARKER_LABEL_OFFSET_Y_DRAGGABLE : MARKER_LABEL_OFFSET_Y_LOCKED),
+    offset: new AMap.Pixel(0, MARKER_LABEL_OFFSET_Y),
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyMarkerLabel(mk: any, name: string) {
+  if (!mk || !amapNS) return
+  try {
+    mk.setLabel(buildMarkerLabelOptions(amapNS, name))
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 就地更新单个预设点覆盖物（位置/名称/标签），避免保存或改坐标时整图重装闪烁 */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyPresetMarkerOverlayAt(presetIndex: number, p: PresetMarker) {
+  const mk = presetOverlayMarkers[presetIndex]
+  if (!mk || !amapNS) return
+  try {
+    mk.setPosition?.([p.lng, p.lat])
+    applyMarkerLabel(mk, p.name)
+    mk.setTitle?.(p.name)
+    mk.setDraggable?.(isPresetMapDragAllowed(presetIndex))
+  } catch {
+    /* ignore */
   }
 }
 
@@ -750,11 +847,19 @@ function applyMarkerEdit() {
   }
   const idx = selectedPresetIndex.value
   if (idx < 0 || idx >= presetMarkers.value.length) return
-  const next = presetMarkers.value.map((p, i) => (i === idx ? { ...p, name, lng, lat } : p))
+  const updated: PresetMarker = { ...presetMarkers.value[idx], name, lng, lat }
+  const next = presetMarkers.value.map((p, i) => (i === idx ? updated : p))
+  skipPresetOverlayReinstall = true
   presetMarkers.value = next
   navTarget.value = { lng, lat, name }
   editableMarker.value = { lng, lat, name }
-  updateEditableMarker(lng, lat)
+  applyPresetMarkerOverlayAt(idx, updated)
+  void nextTick(() => {
+    skipPresetOverlayReinstall = false
+  })
+  if (props.manualPresetPersist) {
+    emit('presets-persist-request')
+  }
 }
 
 function syncEditorFromSelectedPreset() {
@@ -766,6 +871,49 @@ function syncEditorFromSelectedPreset() {
   navTarget.value = { lng: p.lng, lat: p.lat, name: p.name }
 }
 
+/** 切换当前选中的预设点：下拉框、编辑区、导航目标共用同一数据源 */
+function selectPresetAtIndex(index: number, options?: { centerMap?: boolean }) {
+  const list = presetMarkers.value
+  if (list.length === 0) return
+  const idx = Math.min(Math.max(0, index), list.length - 1)
+  selectedPresetIndex.value = idx
+  syncEditorFromSelectedPreset()
+  if (options?.centerMap) {
+    const p = list[idx]
+    if (p) centerMapOnPreset(p)
+  }
+  highlightSelectedPresetOnMap(idx)
+}
+
+/** 高亮当前选中预设点（仅调 zIndex，不重建标签，避免闪烁） */
+function highlightSelectedPresetOnMap(index: number) {
+  resetPresetMarkerZIndices()
+  const mk = presetOverlayMarkers[index]
+  if (!mk) return
+  try {
+    mk.setzIndex?.(580)
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 在指定经纬度新增预设标记并选中（默认锁定，需点「解锁拖动」才能在地图上拖） */
+function addPresetMarkerAt(lng: number, lat: number) {
+  if (!props.allowMarkerEdit) return
+  const newIndex = presetMarkers.value.length
+  const name = `新标记${newIndex + 1}`
+  const newMarker: PresetMarker = { name, lng, lat, locked: true }
+  skipPresetOverlayReinstall = true
+  presetMarkers.value = [...presetMarkers.value, newMarker]
+  if (mapRaw && amapNS) ensurePresetOverlayAt(amapNS, newIndex)
+  selectPresetAtIndex(newIndex, { centerMap: true })
+  void nextTick(() => {
+    if (mapRaw && amapNS) ensurePresetOverlayAt(amapNS, newIndex)
+    selectPresetAtIndex(newIndex, { centerMap: true })
+    skipPresetOverlayReinstall = false
+  })
+}
+
 function addPresetMarkerPoint() {
   if (!props.allowMarkerEdit) return
   let lng = DEFAULT_MARKER_LNG_LAT[0]
@@ -775,32 +923,16 @@ function addPresetMarkerPoint() {
     lng = c.getLng()
     lat = c.getLat()
   }
-  const name = `新标记${presetMarkers.value.length + 1}`
-  const newMarker: PresetMarker = { name, lng, lat, locked: true }
-  const newIndex = presetMarkers.value.length
-  presetMarkers.value = [...presetMarkers.value, newMarker]
-  selectedPresetIndex.value = newIndex
-  // 与列表项同源写入表单，避免「更新列表 → 重建标记 → 误触其它点 click」抢在 sync 之前导致名称框与新建点不一致
-  editName.value = name
-  editLng.value = lng.toFixed(6)
-  editLat.value = lat.toFixed(6)
-  navTarget.value = { lng, lat, name }
-  void nextTick(() => {
-    const p = presetMarkers.value[newIndex]
-    if (!p || p.name !== name) return
-    selectedPresetIndex.value = newIndex
-    syncEditorFromSelectedPreset()
-  })
+  addPresetMarkerAt(lng, lat)
 }
 
 function performRemoveSelectedPresetMarker() {
   if (!props.allowMarkerEdit) return
   if (presetMarkers.value.length <= 1) return
   const idx = selectedPresetIndex.value
+  reindexMapDragUnlockedAfterRemove(idx)
   presetMarkers.value = presetMarkers.value.filter((_, i) => i !== idx)
-  selectedPresetIndex.value = Math.min(idx, presetMarkers.value.length - 1)
-  const p = presetMarkers.value[selectedPresetIndex.value]
-  if (p) applyPresetMarker(p)
+  selectPresetAtIndex(Math.min(idx, presetMarkers.value.length - 1))
 }
 
 function closeDeletePwdModal() {
@@ -843,17 +975,46 @@ function onClickDeletePresetMarker() {
   void nextTick(() => deletePwdInputRef.value?.focus())
 }
 
+function showLockStatusTip(message: string) {
+  lockStatusTip.value = message
+  if (lockStatusTipTimer) clearTimeout(lockStatusTipTimer)
+  lockStatusTipTimer = setTimeout(() => {
+    lockStatusTip.value = ''
+    lockStatusTipTimer = null
+  }, 5000)
+}
+
 function toggleMarkerPositionLock() {
   if (!props.allowMarkerEdit) return
   const idx = selectedPresetIndex.value
   if (idx < 0 || idx >= presetMarkers.value.length) return
-  const cur = presetMarkers.value[idx]
-  if (!cur) return
-  const wasLocked = isPresetPositionLocked(cur)
-  presetMarkers.value = presetMarkers.value.map((p, i) =>
-    i === idx ? { ...p, locked: !wasLocked } : p,
-  )
-  if (mapPickActive.value && isPresetPositionLocked(presetMarkers.value[idx])) detachMapPick()
+  const name = presetMarkers.value[idx]?.name ?? '当前标记'
+  const next = new Set(mapDragUnlockedIndices.value)
+  const willLock = next.has(idx)
+  if (willLock) next.delete(idx)
+  else next.add(idx)
+  mapDragUnlockedIndices.value = next
+  if (mapPickActive.value && isPresetUiLocked(idx)) detachMapPick()
+  syncMarkerDraggability()
+  const mk = presetOverlayMarkers[idx]
+  if (mk) {
+    const canDrag = isPresetMapDragAllowed(idx)
+    try {
+      mk.setDraggable?.(canDrag)
+      if (canDrag) bindPresetMarkerDragEvents(mk, idx)
+    } catch {
+      /* ignore */
+    }
+  }
+  if (willLock) {
+    showLockStatusTip(
+      `「${name}」已锁定：不能在地图上拖动或使用「地图选点」，避免误触；仍可在上方修改经纬度后点「保存当前标记」。`,
+    )
+  } else {
+    showLockStatusTip(
+      `「${name}」已解锁拖动：可在地图上按住标记移动位置，也可使用「地图选点」；改完后请点「保存当前标记」。`,
+    )
+  }
 }
 
 function detachMapPick() {
@@ -876,8 +1037,7 @@ function toggleMapPick() {
     return
   }
   const pickIdx = selectedPresetIndex.value
-  const pickCur = presetMarkers.value[pickIdx]
-  if (isPresetPositionLocked(pickCur)) {
+  if (isPresetUiLocked(pickIdx)) {
     alert('当前标记已锁定位置，请先点「解锁拖动」再使用地图选点。')
     return
   }
@@ -888,7 +1048,7 @@ function toggleMapPick() {
     if (now - lastMapPickAt < 320) return
     lastMapPickAt = now
     const idx = selectedPresetIndex.value
-    if (isPresetPositionLocked(presetMarkers.value[idx])) {
+    if (isPresetUiLocked(idx)) {
       alert('当前标记已锁定，无法通过地图选点修改位置。')
       detachMapPick()
       return
@@ -922,8 +1082,16 @@ function onFetchDeviceLocation() {
       const lng = Number(result.position.lng)
       const lat = Number(result.position.lat)
       if (!Number.isNaN(lng) && !Number.isNaN(lat)) {
-        editLng.value = lng.toFixed(6)
-        editLat.value = lat.toFixed(6)
+        const addAsNew = confirm(
+          '已获取当前位置。\n\n确定：增加为新标记点\n取消：仅填入上方经纬度（用于修改当前选中的标记，需再点「保存当前标记」）',
+        )
+        if (addAsNew) {
+          addPresetMarkerAt(lng, lat)
+        } else {
+          editLng.value = lng.toFixed(6)
+          editLat.value = lat.toFixed(6)
+          updateEditableMarker(lng, lat)
+        }
         return
       }
     }
@@ -945,10 +1113,12 @@ function onFetchDeviceLocation() {
 function updateEditableMarker(lng: number, lat: number) {
   if (mainMarker) {
     mainMarker.setPosition([lng, lat])
+    applyMarkerLabel(mainMarker, props.markerTitle)
   }
   if (presetOverlayMarkers.length > 0) {
     const idx = Math.min(Math.max(0, selectedPresetIndex.value), presetOverlayMarkers.length - 1)
-    presetOverlayMarkers[idx]?.setPosition?.([lng, lat])
+    const p = presetMarkers.value[idx]
+    if (p) applyPresetMarkerOverlayAt(idx, { ...p, lng, lat })
   }
 }
 
@@ -968,31 +1138,37 @@ function onMarkerDragEnd(e: any) {
 /** 预设点标记拖拽结束：同步当前选中项、导航目标与路线 */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function onPresetMarkerDragEnd(e: any, presetIndex: number) {
-  if (isPresetPositionLocked(presetMarkers.value[presetIndex])) return
+  if (!isPresetMapDragAllowed(presetIndex)) return
   syncMapPanForCoarseEditor()
   const position = e.target?.getPosition?.()
   if (!position) return
   const lng = Number(position.getLng?.() ?? position.lng ?? position[0])
   const lat = Number(position.getLat?.() ?? position.lat ?? position[1])
   if (Number.isNaN(lng) || Number.isNaN(lat)) return
-  const cur = presetMarkers.value[presetIndex]
-  const name = cur?.name ?? navTarget.value.name
-  const next = presetMarkers.value.map((p, i) => (i === presetIndex ? { ...p, lng, lat } : p))
+  const updated: PresetMarker = { ...presetMarkers.value[presetIndex], lng, lat }
+  const next = presetMarkers.value.map((p, i) => (i === presetIndex ? updated : p))
+  skipPresetOverlayReinstall = true
   presetMarkers.value = next
-  selectedPresetIndex.value = presetIndex
-  navTarget.value = { lng, lat, name }
-  if (props.allowMarkerEdit) {
-    editLng.value = lng.toFixed(6)
-    editLat.value = lat.toFixed(6)
-  }
-}
-
-function applyPresetMarker(p: PresetMarker) {
-  navTarget.value = { lng: p.lng, lat: p.lat, name: p.name }
-  if (props.allowMarkerEdit) {
-    editName.value = p.name
+  const p = presetMarkers.value[presetIndex]
+  if (p) {
     editLng.value = p.lng.toFixed(6)
     editLat.value = p.lat.toFixed(6)
+    navTarget.value = { lng: p.lng, lat: p.lat, name: p.name }
+  }
+  applyPresetMarkerOverlayAt(presetIndex, updated)
+  void nextTick(() => {
+    skipPresetOverlayReinstall = false
+    resetPresetMarkerZIndices()
+  })
+}
+
+/** 将地图中心移到指定预设点（用于下拉选择目的地等） */
+function centerMapOnPreset(p: PresetMarker) {
+  if (!mapRaw) return
+  try {
+    mapRaw.setCenter([p.lng, p.lat])
+  } catch {
+    /* ignore */
   }
 }
 
@@ -1017,61 +1193,102 @@ function resetPresetMarkerZIndices() {
   })
 }
 
-/** 在地图上一次展示全部预设点，并自适应视野 */
+/** 为已解锁的预设点绑定拖动事件（就地更新，避免整图重装导致名称闪烁） */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function installPresetOverlays(AMap: any) {
-  destroyPresetOverlays()
-  if (!mapRaw || !presetMarkers.value.length) return
-  for (let i = 0; i < presetMarkers.value.length; i++) {
-    const p = presetMarkers.value[i]
-    const locked = isPresetPositionLocked(p)
-    const canDrag = props.allowMarkerEdit && !locked
-    const mk = new AMap.Marker({
-      position: [p.lng, p.lat],
-      title: p.name,
-      anchor: 'bottom-center',
-      draggable: canDrag,
-      raiseOnDrag: canDrag,
-      zIndex: 120 + i,
-      label: buildMarkerLabelOptions(AMap, p.name, canDrag),
-    })
-    if (canDrag) {
-      mk.on('dragstart', () => {
-        mapRaw?.setStatus({ dragEnable: false })
-        try {
-          mk.setzIndex?.(580)
-        } catch {
-          /* ignore */
-        }
-      })
-      mk.on('dragend', (e: any) => {
-        resetPresetMarkerZIndices()
-        onPresetMarkerDragEnd(e, i)
-      })
+function bindPresetMarkerDragEvents(mk: any, index: number) {
+  if (!mk || !mapRaw) return
+  try {
+    mk.off?.('dragstart')
+    mk.off?.('dragend')
+  } catch {
+    /* ignore */
+  }
+  if (!isPresetMapDragAllowed(index)) return
+  mk.on('dragstart', () => {
+    mapRaw?.setStatus({ dragEnable: false })
+    try {
+      mk.setzIndex?.(580)
+    } catch {
+      /* ignore */
     }
-    mk.on('click', () => {
-      const cur = presetMarkers.value[i]
-      if (!cur) return
-      selectedPresetIndex.value = i
-      applyPresetMarker(cur)
-      if (props.markerNavigateOnClick) {
-        openAmapNavigationTo(cur.lng, cur.lat, cur.name)
-      }
-    })
+  })
+  mk.on('dragend', (e: any) => {
+    onPresetMarkerDragEnd(e, index)
+  })
+}
+
+/** 创建单个预设点地图标记（不挂到地图，由 install/append 负责 setMap） */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function createPresetMarkerOverlay(AMap: any, index: number): any | null {
+  const p = presetMarkers.value[index]
+  if (!p || !mapRaw) return null
+  const canDrag = isPresetMapDragAllowed(index)
+  const mk = new AMap.Marker({
+    position: [p.lng, p.lat],
+    title: p.name,
+    anchor: 'bottom-center',
+    draggable: canDrag,
+    /** 关闭抬起：避免拖动时图钉上浮而名称仍按旧偏移，导致重叠或间距异常 */
+    raiseOnDrag: false,
+    zIndex: 120 + index,
+    label: buildMarkerLabelOptions(AMap, p.name),
+  })
+  if (canDrag) bindPresetMarkerDragEvents(mk, index)
+  mk.on('click', () => {
+    if (suppressPresetMarkerPick) return
+    const cur = presetMarkers.value[index]
+    if (!cur) return
+    selectPresetAtIndex(index)
+    if (props.markerNavigateOnClick) {
+      openAmapNavigationTo(cur.lng, cur.lat, cur.name)
+    }
+  })
+  return mk
+}
+
+/**
+ * 补齐到 index 的地图覆盖物（只增不拆，避免新增时整图重装闪烁）。
+ * 若中间有缺口会按顺序补全，保证覆盖物数量与列表一致。
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ensurePresetOverlayAt(AMap: any, index: number) {
+  if (!mapRaw || index < 0 || index >= presetMarkers.value.length) return
+  for (let i = presetOverlayMarkers.length; i <= index; i++) {
+    const mk = createPresetMarkerOverlay(AMap, i)
+    if (!mk) continue
     mk.setMap(mapRaw)
     presetOverlayMarkers.push(mk)
   }
+  const existing = presetOverlayMarkers[index]
+  const p = presetMarkers.value[index]
+  if (existing && p) applyPresetMarkerOverlayAt(index, p)
   syncMarkerDraggability()
 }
 
-function onPresetSelected() {
-  const m = presetMarkers.value[selectedPresetIndex.value]
-  if (m) applyPresetMarker(m)
+/** 在地图上一次展示全部预设点，并自适应视野 */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function installPresetOverlays(AMap: any) {
+  suppressPresetMarkerPick = true
+  destroyPresetOverlays()
+  if (!mapRaw || !presetMarkers.value.length) {
+    suppressPresetMarkerPick = false
+    return
+  }
+  for (let i = 0; i < presetMarkers.value.length; i++) {
+    const mk = createPresetMarkerOverlay(AMap, i)
+    if (mk) {
+      mk.setMap(mapRaw)
+      presetOverlayMarkers.push(mk)
+    }
+  }
+  syncMarkerDraggability()
+  void nextTick(() => {
+    suppressPresetMarkerPick = false
+  })
 }
 
 function selectPresetFromCombo(i: number) {
-  selectedPresetIndex.value = i
-  onPresetSelected()
+  selectPresetAtIndex(i, { centerMap: true })
   closePresetCombo()
 }
 
@@ -1176,9 +1393,9 @@ onMounted(async () => {
         title: props.markerTitle,
         anchor: 'bottom-center',
         draggable: props.allowMarkerEdit,
-        raiseOnDrag: props.allowMarkerEdit,
+        raiseOnDrag: false,
         zIndex: 120,
-        label: buildMarkerLabelOptions(AMap, props.markerTitle, props.allowMarkerEdit),
+        label: buildMarkerLabelOptions(AMap, props.markerTitle),
       })
       mainMarker.setMap(m)
       if (props.allowMarkerEdit) {
@@ -1198,6 +1415,7 @@ onMounted(async () => {
             /* ignore */
           }
           onMarkerDragEnd(e)
+          void nextTick(() => applyMarkerLabel(mainMarker, props.markerTitle))
         })
       }
       // 点击导航
@@ -1211,12 +1429,7 @@ onMounted(async () => {
     mapReady.value = true
     syncMapPanForCoarseEditor()
     syncPitchFromMap()
-    selectedPresetIndex.value = findInitialPresetIndex()
-    const initialPreset = presetMarkers.value[selectedPresetIndex.value]
-    if (initialPreset) {
-      navTarget.value = { lng: initialPreset.lng, lat: initialPreset.lat, name: initialPreset.name }
-    }
-    if (props.allowMarkerEdit) syncEditorFromSelectedPreset()
+    selectPresetAtIndex(findInitialPresetIndex())
   } catch (e) {
     console.error('[amap] 初始化失败', e)
     initError.value =
@@ -1225,6 +1438,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  if (lockStatusTipTimer) clearTimeout(lockStatusTipTimer)
   document.removeEventListener('pointerdown', onPresetComboDocPointerDown, true)
   detachMapPick()
   geolocationRaw = null
@@ -1814,6 +2028,24 @@ onUnmounted(() => {
   font-weight: 500;
 }
 
+.amap-editor-tip--persist {
+  font-style: normal;
+  color: rgba(80, 72, 58, 0.9);
+  font-weight: 500;
+}
+
+.amap-editor-tip--lock-status {
+  margin-top: 0.45rem;
+  font-style: normal;
+  font-weight: 500;
+  color: rgba(80, 72, 58, 0.92);
+  line-height: 1.45;
+}
+
+.amap-editor-tip--lock-status-unlocked {
+  color: rgba(46, 125, 78, 0.95);
+}
+
 .amap-editor-btn {
   flex: 1 1 auto;
   padding: 0.4rem 0.75rem;
@@ -1951,6 +2183,9 @@ onUnmounted(() => {
   padding: 0 !important;
   box-shadow: none !important;
   outline: none !important;
+  white-space: nowrap;
+  pointer-events: none;
+  line-height: 1.2;
 }
 
 .amap-driving-panel {

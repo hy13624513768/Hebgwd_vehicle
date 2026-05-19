@@ -7,6 +7,7 @@ export async function fetchNavPresets(): Promise<PresetMarker[]> {
   return data.markers
 }
 
-export async function replaceNavPresets(markers: PresetMarker[]): Promise<void> {
-  await http.put('/nav-presets', { markers })
+export async function replaceNavPresets(markers: PresetMarker[]): Promise<PresetMarker[]> {
+  const { data } = await http.put<{ markers: PresetMarker[] }>('/nav-presets', { markers })
+  return data.markers
 }

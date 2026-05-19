@@ -16,6 +16,11 @@ export function isPresetPositionLocked(p: PresetMarker | undefined): boolean {
   return p.locked !== false
 }
 
+/** 写入服务器前统一为锁定，避免历史数据或误保存导致「未点解锁却可拖」 */
+export function normalizePresetMarkersForStorage(markers: PresetMarker[]): PresetMarker[] {
+  return markers.map((m) => ({ ...m, locked: true }))
+}
+
 export const DEFAULT_PRESET_MARKERS: PresetMarker[] = [
   { name: '哈尔滨工务段', lng: 126.57466, lat: 45.706031, locked: true },
   { name: '哈双路', lng: 126.5836, lat: 45.6891, locked: true },
