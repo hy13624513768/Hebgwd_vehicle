@@ -12,6 +12,8 @@
       class="loc-nav__map"
       :marker-navigate-on-click="false"
       :allow-marker-edit="canEditMapLocations"
+      :allow-delete-marker="canDeleteNavPresetMarkers"
+      audit-nav-preset-ops
       manual-preset-persist
       :presets-saving="presetsSaving"
       @presets-persist-request="onPersistNavPresets"
@@ -35,6 +37,7 @@ import AmapContainer from '@/components/AmapContainer.vue'
 import {
   DEFAULT_PRESET_MARKERS,
   normalizePresetMarkersForStorage,
+  validateUniquePresetMarkerNames,
   type PresetMarker,
 } from '@/lib/amapPresets'
 import { usePermissions } from '@/composables/usePermissions'
@@ -48,7 +51,7 @@ const presetsLoadError = ref<string | null>(null)
 const presetsHydrated = ref(false)
 const presetsSaving = ref(false)
 const saveSuccessOpen = ref(false)
-const { canEditMapLocations } = usePermissions()
+const { canEditMapLocations, canDeleteNavPresetMarkers } = usePermissions()
 
 onMounted(async () => {
   try {
@@ -66,9 +69,15 @@ onMounted(async () => {
 async function onPersistNavPresets() {
   if (!presetsHydrated.value || !canEditMapLocations.value) return
   if (presetsSaving.value || navPresetMarkers.value.length === 0) return
+  const nameError = validateUniquePresetMarkerNames(navPresetMarkers.value)
+  if (nameError) {
+    alert(nameError)
+    return
+  }
   presetsSaving.value = true
   try {
-    await replaceNavPresets(normalizePresetMarkersForStorage(navPresetMarkers.value))
+    const saved = await replaceNavPresets(normalizePresetMarkersForStorage(navPresetMarkers.value))
+    navPresetMarkers.value = normalizePresetMarkersForStorage(saved)
     saveSuccessOpen.value = true
   } catch {
     alert('保存预设点到服务器失败，请检查网络或权限后重试')

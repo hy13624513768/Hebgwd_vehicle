@@ -22,6 +22,15 @@ const ACCOUNT_ADMIN_ROLES = new Set([
 /** 地图预设点拖动 / 坐标编辑（与车队管理层级一致：段级、车间级管理员等；不含驾驶员、普通职员） */
 const MAP_LOCATION_EDIT_ROLES = FLEET_MANAGEMENT_ROLES
 
+/** 段内导航：删除标记点（仅超级管理员、段级管理员、车间管理员） */
+const NAV_PRESET_DELETE_ROLES = new Set([
+  'super_admin',
+  'section_admin',
+  'workshop_admin',
+  'admin',
+  'fleet_manager',
+])
+
 export function usePermissions() {
   const user = useUserStore()
 
@@ -36,6 +45,7 @@ export function usePermissions() {
   const canExportReports = computed(() => FLEET_MANAGEMENT_ROLES.has(role.value))
   const canManageAccounts = computed(() => ACCOUNT_ADMIN_ROLES.has(role.value))
   const canEditMapLocations = computed(() => MAP_LOCATION_EDIT_ROLES.has(role.value))
+  const canDeleteNavPresetMarkers = computed(() => NAV_PRESET_DELETE_ROLES.has(role.value))
 
   return {
     role,
@@ -47,5 +57,6 @@ export function usePermissions() {
     canExportReports,
     canManageAccounts,
     canEditMapLocations,
+    canDeleteNavPresetMarkers,
   }
 }

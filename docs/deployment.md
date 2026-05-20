@@ -2,7 +2,7 @@
 
 本文说明正式上线前建议完成的配置，以及如何区分**测试 / 预发 / 生产**等环境。代码层面已支持：
 
-- **Sealos / DevBox 入口与运维脚本均在 `deploy/`**：`entrypoint-backend.sh`、`entrypoint-frontend.sh`、`prep-release-backend.sh`（发版前准备）、`run-devbox.sh`（前后端同时开发）、`push-acr.sh`（构建推送镜像）、`urls.env.example`
+- **Sealos / DevBox 入口与运维脚本均在 `deploy/`**：`entrypoint-backend.sh`、`entrypoint-frontend.sh`、`prep-release-backend.sh`（发版前准备）、`run-devbox.sh`（前后端同时开发）、`push-acr.sh`（构建推送镜像）、`urls.env.example`、`database.env.example`（内网/外网库地址说明）、`sealos-backend-production.env.example`
 - 后端：`ENVIRONMENT`、`DEMO_SEEDING_ENABLED`、`CORS_ORIGINS`（见 `backend/.env.example`）
 - 前端：`VITE_API_BASE_URL`、`VITE_APP_ENV`、高德 Key（见 `frontend/.env.example`）
 - 健康检查：`GET /health` 返回 `environment` 字段
@@ -86,26 +86,39 @@ npm run build
 
 ---
 
-## Sealos 部署：PostgreSQL 连接（集群内）
+## Sealos 部署：PostgreSQL 连接（集群内网）
 
-后端 Pod 与 Sealos「数据库」应用在**同一 Kubernetes 集群**时，使用 **Service 的集群内 DNS**，无需经过公网。
+后端 Pod 与数据库应用在**同一 Kubernetes 集群**时，**日常必须使用集群内 DNS**，不要用 `dbconn.sealosbja.site` 外网地址。外网仅用于 DevBox 执行一次性数据迁移（见 `deploy/database.env.example`）。
 
-示例（命名空间、Service 名以控制台为准）：
+| 环境 | 内网主机（Service） | 库名 |
+| --- | --- | --- |
+| **开发** | `bus-system-postgresql.ns-1ht608x0.svc:5432` | `bus_system_test` |
+| **生产** | `test-db-postgresql.ns-1ht608x0.svc:5432` | `bus_system_test` |
 
-| 项 | 示例值 |
-| --- | --- |
-| 主机 | `bus-system-postgresql.ns-1ht608x0.svc` |
-| 端口 | `5432` |
-| 数据库名 | `bus_system_test` |
-| 用户 | `postgres`（或控制台给出的超级用户） |
-
-后端 `DATABASE_URL`（SQLAlchemy）示例：
+开发 `DATABASE_URL` 示例（写入 `backend/.env` 或开发后端应用环境变量）：
 
 ```env
-DATABASE_URL=postgresql+psycopg2://postgres:<Sealos控制台密码>@bus-system-postgresql.ns-1ht608x0.svc:5432/bus_system_test
+ENVIRONMENT=development
+DATABASE_URL=postgresql+psycopg2://postgres:<开发库密码>@bus-system-postgresql.ns-1ht608x0.svc:5432/bus_system_test
 ```
 
-建议在 Sealos 应用配置中使用**密钥 / 环境变量**注入密码，不要写入镜像或公开仓库。若 Namespace 或 Service 名称变更，请同步修改 `backend/.env` 与 `app/core/config.py` 中的默认主机（或通过环境变量覆盖 `DATABASE_URL`）。
+生产 `DATABASE_URL` 示例（写入 Sealos **生产后端**应用环境变量，模板见 `deploy/sealos-backend-production.env.example`）：
+
+```env
+ENVIRONMENT=production
+DATABASE_URL=postgresql+psycopg2://postgres:<生产库密码>@test-db-postgresql.ns-1ht608x0.svc:5432/bus_system_test
+```
+
+**数据迁移（开发库 → 生产库，仅执行迁移时）**：
+
+```bash
+# 外网地址见 deploy/database.env.example
+export DEV_DATABASE_URL="postgresql://postgres:<密码>@dbconn.sealosbja.site:39754/bus_system_test"
+export PROD_DATABASE_URL="postgresql://postgres:<密码>@dbconn.sealosbja.site:48528/bus_system_test"
+cd hebgwd_vehicle/backend && .venv/bin/python scripts/migrate_dev_db_to_prod.py
+```
+
+迁移完成后，开发与生产后端均应只使用上表中的**内网** `DATABASE_URL`。
 
 ---
 
@@ -144,7 +157,7 @@ docker build -t your-registry/hebgwd-frontend:latest \
 | 变量名 | 说明 |
 | --- | --- |
 | `ENVIRONMENT` | `production` |
-| `DATABASE_URL` | `postgresql+psycopg2://postgres:<密码>@bus-system-postgresql.<你的Namespace>.svc:5432/bus_system_test` |
+| `DATABASE_URL` | 生产内网：`postgresql+psycopg2://postgres:<密码>@test-db-postgresql.ns-1ht608x0.svc:5432/bus_system_test` |
 | `JWT_SECRET` | 随机长串 |
 | `JWT_EXPIRE_MINUTES` | 如 `120` |
 | `CORS_ORIGINS` | 前端公网 Origin，如 `https://xwyommoychvz.sealosbja.site`（多个用英文逗号；可与 `deploy/urls.env.example` 对齐） |

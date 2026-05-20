@@ -22,12 +22,6 @@ def authenticate(db: Session, username: str, password: str, slider_session_id: s
     if not slider_store.is_ready(slider_session_id):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请拖动滑块验证")
 
-    if not PWD_REGEX.fullmatch(password):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="密码不符合安全规范，请联系管理员修改密码，否则无法登陆",
-        )
-
     user = db.scalar(select(User).where(User.username == username))
     now = datetime.now(timezone.utc)
 

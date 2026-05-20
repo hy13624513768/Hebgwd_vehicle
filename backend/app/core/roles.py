@@ -67,6 +67,17 @@ def is_account_admin(role: str) -> bool:
     return role in {SUPER_ADMIN, SECTION_ADMIN, LEGACY_ADMIN, LEGACY_FLEET_MANAGER}
 
 
+def can_delete_nav_preset(role: str) -> bool:
+    """段内导航：仅超级管理员、段级管理员、车间管理员可删除标记点。"""
+    return role in {
+        SUPER_ADMIN,
+        SECTION_ADMIN,
+        WORKSHOP_ADMIN,
+        LEGACY_ADMIN,
+        LEGACY_FLEET_MANAGER,
+    }
+
+
 def assignable_roles_for_actor(actor_role: str) -> list[str]:
     """当前操作者可分配的角色编码列表（不含仅保留在库中的旧值）。"""
     if is_legacy_super(actor_role):

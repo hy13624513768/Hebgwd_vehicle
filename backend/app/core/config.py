@@ -7,8 +7,7 @@ class Settings(BaseSettings):
     """运行环境标识：development / test / staging / preprod / production（用于日志与健康检查展示，请与各部署环境的 .env 对应）"""
     environment: str = "development"
 
-    # 默认：Sealos 集群内 PostgreSQL Service（与后端同集群时可直连）。
-    # 本地开发请在 backend/.env 中覆盖为 127.0.0.1:55432 或 Docker 映射端口；密码勿提交版本库。
+    # 默认：开发库集群内网 Service（与后端同集群时直连）。生产库为 test-db-postgresql.ns-1ht608x0.svc，见 deploy/database.env.example
     database_url: str = (
         "postgresql+psycopg2://postgres:CHANGE_ME@bus-system-postgresql.ns-1ht608x0.svc:5432/bus_system_test"
     )

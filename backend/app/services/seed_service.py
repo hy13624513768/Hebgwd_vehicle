@@ -198,11 +198,28 @@ def seed_demo_if_empty(db: Session) -> None:
         db.commit()
 
 
-def _ensure_user(db: Session, username: str, password: str, display_name: str, role: str) -> User | None:
+def _ensure_user(
+    db: Session,
+    username: str,
+    password: str,
+    display_name: str,
+    role: str,
+    *,
+    reset_password: bool = False,
+) -> User | None:
     existing = db.scalar(select(User).where(User.username == username))
     if existing:
+        changed = False
         if existing.role != role:
             existing.role = role
+            changed = True
+        if existing.display_name != display_name:
+            existing.display_name = display_name
+            changed = True
+        if reset_password and password:
+            existing.password_hash = hash_password(password)
+            changed = True
+        if changed:
             db.commit()
         return existing
     if not password:
@@ -218,6 +235,54 @@ def _ensure_user(db: Session, username: str, password: str, display_name: str, r
     db.commit()
     db.refresh(u)
     return u
+
+
+def collect_workshop_names(db: Session) -> list[str]:
+    """从车辆使用单位与油卡流水汇总名称以「车间」结尾的单位（去重排序）。"""
+    names: set[str] = set()
+    for col in (Vehicle.org_unit, FuelBalance.workshop, FuelRecord.workshop):
+        for raw in db.scalars(select(col).distinct()).all():
+            name = str(raw or "").strip()
+            if name and name != "/" and name.endswith("车间"):
+                names.add(name)
+    return sorted(names)
+
+
+def workshop_admin_account_name(workshop: str) -> str:
+    """车间管理员登录名与显示名：如「阿城线路车间」→「阿城线路车间管理员」。"""
+    ws = workshop.strip()
+    if ws.endswith("管理员"):
+        return ws
+    return f"{ws}管理员"
+
+
+def seed_workshop_admin_accounts(
+    db: Session,
+    *,
+    password: str = "hebgwd_123",
+    reset_password: bool = False,
+) -> list[str]:
+    """
+    为每个车间创建 workshop_admin 账号。
+    返回本次新建的用户名列表（已存在且未重置密码的不计入）。
+    """
+    from app.core.roles import WORKSHOP_ADMIN
+
+    created: list[str] = []
+    for workshop in collect_workshop_names(db):
+        account = workshop_admin_account_name(workshop)
+        existed = db.scalar(select(User).where(User.username == account)) is not None
+        _ensure_user(
+            db,
+            account,
+            password,
+            account,
+            WORKSHOP_ADMIN,
+            reset_password=reset_password,
+        )
+        if not existed:
+            created.append(account)
+    return created
 
 
 def seed_standard_accounts(db: Session) -> None:

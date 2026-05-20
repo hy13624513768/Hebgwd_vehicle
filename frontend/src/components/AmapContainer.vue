@@ -142,6 +142,7 @@ VITE_AMAP_SECURITY_JSCODE=对应安全密钥</pre>
           <div class="amap-editor-row">
             <label class="amap-editor-label">名称</label>
             <input
+              ref="editNameInputRef"
               v-model="editName"
               type="text"
               class="amap-editor-input"
@@ -386,8 +387,13 @@ import axios from 'axios'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import * as authApi from '@/api/auth'
+import { postNavPresetOpLog, type NavPresetOpAction } from '@/api/navPresetOpLogs'
 import { isAmapKeyConfigured, isAmapSecurityConfigured, loadAmap, openAmapNavigationTo } from '@/lib/amap'
-import { DEFAULT_PRESET_MARKERS, type PresetMarker } from '@/lib/amapPresets'
+import {
+  DEFAULT_PRESET_MARKERS,
+  findDuplicatePresetNameIndex,
+  type PresetMarker,
+} from '@/lib/amapPresets'
 
 const canLoadMap = computed(() => isAmapKeyConfigured())
 const warnSecurityOnly = computed(() => canLoadMap.value && !isAmapSecurityConfigured())
@@ -422,6 +428,10 @@ const props = withDefaults(
     manualPresetPersist?: boolean
     /** 父级正在写入服务器时禁用保存按钮 */
     presetsSaving?: boolean
+    /** 是否允许删除当前标记（段内导航：仅超级/段级/车间管理员） */
+    allowDeleteMarker?: boolean
+    /** 为 true 时向服务端写入标记点操作审计日志（不含地图拖动） */
+    auditNavPresetOps?: boolean
   }>(),
   {
     zoom: 14,
@@ -432,8 +442,12 @@ const props = withDefaults(
     allowMarkerEdit: false,
     manualPresetPersist: false,
     presetsSaving: false,
+    allowDeleteMarker: false,
+    auditNavPresetOps: false,
   },
 )
+
+const NAV_PRESET_DELETE_DENIED_MSG = '当前用户权限不足，请联系本车间管理员'
 
 const emit = defineEmits<{
   /** 用户点击「保存当前标记」且本地校验通过后，请父级写入数据库 */
@@ -619,6 +633,7 @@ let placeSearchRaw: any = null
 // 标记编辑相关状态
 const editableMarker = ref<{ lng: number; lat: number; name: string } | null>(null)
 const editName = ref('')
+const editNameInputRef = ref<HTMLInputElement | null>(null)
 const editLng = ref('')
 const editLat = ref('')
 const showMarkerEditor = ref(false)
@@ -630,6 +645,8 @@ const deletePwdInputRef = ref<HTMLInputElement | null>(null)
 const lockStatusTip = ref('')
 let lockStatusTipTimer: ReturnType<typeof setTimeout> | null = null
 const deviceLocateLoading = ref(false)
+/** 忽略过期的「获取当前位置」回调，避免定位返回时覆盖已拖动后的坐标 */
+let deviceLocateGeneration = 0
 const mapPickActive = ref(false)
 /** 触摸/笔等粗指针设备（典型为手机），用于提示文案与交互提示 */
 const isCoarsePointer = ref(false)
@@ -831,22 +848,74 @@ function resetRotation() {
   mapRaw?.setRotation?.(0)
 }
 
+/** 从地图覆盖物或列表读取当前预设点坐标（保存时以地图上的标记位置为准） */
+function readCoordsFromMapMarker(mk: any): { lng: number; lat: number } | null {
+  if (!mk?.getPosition) return null
+  try {
+    const position = mk.getPosition()
+    if (!position) return null
+    const lng = Number(position.getLng?.() ?? position.lng ?? position[0])
+    const lat = Number(position.getLat?.() ?? position.lat ?? position[1])
+    if (Number.isNaN(lng) || Number.isNaN(lat)) return null
+    return { lng, lat }
+  } catch {
+    return null
+  }
+}
+
+function recordNavPresetOp(
+  action: NavPresetOpAction,
+  marker: { name: string; lng?: number; lat?: number },
+  detail = '',
+) {
+  if (!props.auditNavPresetOps) return
+  void postNavPresetOpLog({
+    action,
+    marker_name: marker.name,
+    marker_lng: marker.lng ?? null,
+    marker_lat: marker.lat ?? null,
+    detail,
+  }).catch((err) => {
+    console.warn('[nav-preset-op-log]', err)
+  })
+}
+
+function getSelectedPresetCoords(index: number): { lng: number; lat: number } | null {
+  const fromMap = readCoordsFromMapMarker(presetOverlayMarkers[index])
+  if (fromMap) return fromMap
+  const p = presetMarkers.value[index]
+  if (!p) return null
+  return { lng: p.lng, lat: p.lat }
+}
+
 // 标记位置编辑功能
 function applyMarkerEdit() {
   if (!props.allowMarkerEdit) return
-  const lng = parseFloat(editLng.value)
-  const lat = parseFloat(editLat.value)
-  if (Number.isNaN(lng) || Number.isNaN(lat)) {
-    alert('请输入有效的经纬度数值')
-    return
-  }
   const name = editName.value.trim()
   if (!name) {
     alert('请填写标记名称')
+    void nextTick(() => editNameInputRef.value?.focus())
     return
   }
   const idx = selectedPresetIndex.value
   if (idx < 0 || idx >= presetMarkers.value.length) return
+  const dupIdx = findDuplicatePresetNameIndex(presetMarkers.value, name, idx)
+  if (dupIdx >= 0) {
+    alert(
+      `标记名称「${name}」与已有标记「${presetMarkers.value[dupIdx]?.name ?? name}」重复，请修改为其他名称后再保存。`,
+    )
+    void nextTick(() => editNameInputRef.value?.focus())
+    return
+  }
+  const coords = getSelectedPresetCoords(idx)
+  const lng = coords?.lng ?? parseFloat(editLng.value)
+  const lat = coords?.lat ?? parseFloat(editLat.value)
+  if (Number.isNaN(lng) || Number.isNaN(lat)) {
+    alert('请输入有效的经纬度数值')
+    return
+  }
+  editLng.value = lng.toFixed(6)
+  editLat.value = lat.toFixed(6)
   const updated: PresetMarker = { ...presetMarkers.value[idx], name, lng, lat }
   const next = presetMarkers.value.map((p, i) => (i === idx ? updated : p))
   skipPresetOverlayReinstall = true
@@ -854,12 +923,13 @@ function applyMarkerEdit() {
   navTarget.value = { lng, lat, name }
   editableMarker.value = { lng, lat, name }
   applyPresetMarkerOverlayAt(idx, updated)
+  recordNavPresetOp('save', { name, lng, lat })
   void nextTick(() => {
     skipPresetOverlayReinstall = false
+    if (props.manualPresetPersist) {
+      emit('presets-persist-request')
+    }
   })
-  if (props.manualPresetPersist) {
-    emit('presets-persist-request')
-  }
 }
 
 function syncEditorFromSelectedPreset() {
@@ -907,6 +977,7 @@ function addPresetMarkerAt(lng: number, lat: number) {
   presetMarkers.value = [...presetMarkers.value, newMarker]
   if (mapRaw && amapNS) ensurePresetOverlayAt(amapNS, newIndex)
   selectPresetAtIndex(newIndex, { centerMap: true })
+  recordNavPresetOp('create', { name, lng, lat })
   void nextTick(() => {
     if (mapRaw && amapNS) ensurePresetOverlayAt(amapNS, newIndex)
     selectPresetAtIndex(newIndex, { centerMap: true })
@@ -930,6 +1001,10 @@ function performRemoveSelectedPresetMarker() {
   if (!props.allowMarkerEdit) return
   if (presetMarkers.value.length <= 1) return
   const idx = selectedPresetIndex.value
+  const removed = presetMarkers.value[idx]
+  if (removed) {
+    recordNavPresetOp('delete', { name: removed.name, lng: removed.lng, lat: removed.lat })
+  }
   reindexMapDragUnlockedAfterRemove(idx)
   presetMarkers.value = presetMarkers.value.filter((_, i) => i !== idx)
   selectPresetAtIndex(Math.min(idx, presetMarkers.value.length - 1))
@@ -966,6 +1041,10 @@ async function submitDeletePwdModal() {
 
 function onClickDeletePresetMarker() {
   if (!props.allowMarkerEdit) return
+  if (!props.allowDeleteMarker) {
+    alert(NAV_PRESET_DELETE_DENIED_MSG)
+    return
+  }
   if (presetMarkers.value.length <= 1) {
     alert('至少保留一个标记点')
     return
@@ -1006,11 +1085,14 @@ function toggleMarkerPositionLock() {
       /* ignore */
     }
   }
+  const p = presetMarkers.value[idx]
   if (willLock) {
+    recordNavPresetOp('lock_drag', { name, lng: p?.lng, lat: p?.lat })
     showLockStatusTip(
       `「${name}」已锁定：不能在地图上拖动或使用「地图选点」，避免误触；仍可在上方修改经纬度后点「保存当前标记」。`,
     )
   } else {
+    recordNavPresetOp('unlock_drag', { name, lng: p?.lng, lat: p?.lat })
     showLockStatusTip(
       `「${name}」已解锁拖动：可在地图上按住标记移动位置，也可使用「地图选点」；改完后请点「保存当前标记」。`,
     )
@@ -1075,8 +1157,10 @@ function onFetchDeviceLocation() {
     alert('定位未就绪，请刷新页面后重试')
     return
   }
+  const locateGen = ++deviceLocateGeneration
   deviceLocateLoading.value = true
   geolocationRaw.getCurrentPosition((status: string, result: any) => {
+    if (locateGen !== deviceLocateGeneration) return
     deviceLocateLoading.value = false
     if (status === 'complete' && result?.position) {
       const lng = Number(result.position.lng)
@@ -1085,12 +1169,25 @@ function onFetchDeviceLocation() {
         const addAsNew = confirm(
           '已获取当前位置。\n\n确定：增加为新标记点\n取消：仅填入上方经纬度（用于修改当前选中的标记，需再点「保存当前标记」）',
         )
+        if (locateGen !== deviceLocateGeneration) return
         if (addAsNew) {
           addPresetMarkerAt(lng, lat)
         } else {
           editLng.value = lng.toFixed(6)
           editLat.value = lat.toFixed(6)
           updateEditableMarker(lng, lat)
+          const idx = selectedPresetIndex.value
+          if (idx >= 0 && idx < presetMarkers.value.length) {
+            const p = presetMarkers.value[idx]
+            const next = presetMarkers.value.map((m, i) =>
+              i === idx ? { ...m, lng, lat } : m,
+            )
+            skipPresetOverlayReinstall = true
+            presetMarkers.value = next
+            void nextTick(() => {
+              skipPresetOverlayReinstall = false
+            })
+          }
         }
         return
       }
@@ -1205,6 +1302,7 @@ function bindPresetMarkerDragEvents(mk: any, index: number) {
   }
   if (!isPresetMapDragAllowed(index)) return
   mk.on('dragstart', () => {
+    deviceLocateGeneration++
     mapRaw?.setStatus({ dragEnable: false })
     try {
       mk.setzIndex?.(580)

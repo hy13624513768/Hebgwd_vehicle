@@ -111,8 +111,11 @@ def create_user(db: DbSession, current: AccountAdmin, body: UserAdminCreate) -> 
             detail="密码需 8-16 位并包含大小写字母、数字与特殊字符",
         )
     username = body.username.strip()
-    if not re.match(r"^[A-Za-z0-9_\-.]{1,64}$", username):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="用户名仅允许字母数字与 _-. ")
+    if not re.match(r"^[\u4e00-\u9fffA-Za-z0-9_\-.]{1,64}$", username):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="用户名仅允许中文、字母、数字与 _-. ",
+        )
     u = User(
         username=username,
         password_hash=hash_password(body.password),
