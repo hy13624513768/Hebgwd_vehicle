@@ -11,6 +11,7 @@ from app.db.migrate import run_runtime_migrations
 from app.db.session import SessionLocal, engine
 from app import models  # noqa: F401
 from app.services import seed_service
+from app.services.workshop_service import sync_workshops_master_and_links
 
 
 @asynccontextmanager
@@ -20,6 +21,7 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         bootstrap_admin_if_needed(db)
+        sync_workshops_master_and_links(db)
         seed_service.seed_nav_presets_if_empty(db)
         if settings.demo_seeding_enabled:
             seed_service.seed_standard_accounts(db)

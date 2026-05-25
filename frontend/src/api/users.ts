@@ -30,7 +30,12 @@ export async function fetchAssignableRoles(): Promise<string[]> {
   return data
 }
 
-export async function listUsers(params: { skip?: number; limit?: number; q?: string }): Promise<UserAdminList> {
+export async function listUsers(params: {
+  skip?: number
+  limit?: number
+  q?: string
+  role?: string
+}): Promise<UserAdminList> {
   const { data } = await http.get<UserAdminList>('/users', { params })
   return data
 }

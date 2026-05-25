@@ -34,6 +34,7 @@ class FuelRecordCreate(BaseModel):
     amount: Decimal = Field(ge=Decimal("0"))
     balance: Decimal = Field(default=Decimal("0.00"))
     workshop: str = Field(default="", max_length=128)
+    workshop_id: int | None = Field(default=None, description="所属车间主数据 ID")
     org_name: str = Field(default="", max_length=128)
     gift_name: str = Field(default="", max_length=128)
 
@@ -49,6 +50,7 @@ class FuelRecordOut(BaseModel):
     amount: Decimal
     balance: Decimal
     workshop: str
+    workshop_id: int | None = None
     org_name: str
     gift_name: str
     created_at: datetime
@@ -68,6 +70,7 @@ class FuelBalanceOut(BaseModel):
     id: int
     card_no: str
     workshop: str
+    workshop_id: int | None = None
     vehicle_no: str
     amount: Decimal
     reserve_fund: Decimal

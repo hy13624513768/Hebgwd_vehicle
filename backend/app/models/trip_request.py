@@ -23,6 +23,9 @@ class TripRequest(Base):
         String(16), default="pending", nullable=False
     )  # pending/approved/rejected/in_progress/completed/cancelled
 
+    workshop_id: Mapped[int | None] = mapped_column(
+        ForeignKey("bus_workshop.id"), nullable=True, index=True
+    )
     vehicle_id: Mapped[int | None] = mapped_column(ForeignKey("bus_vehicle.id"), nullable=True)
     driver_id: Mapped[int | None] = mapped_column(ForeignKey("bus_driver.id"), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

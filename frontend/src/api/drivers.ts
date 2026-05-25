@@ -7,23 +7,22 @@ export type DriverListResponse = {
 }
 
 export type DriverFilters = {
-  statuses: string[]
+  workshops: string[]
   license_types: string[]
 }
 
 export type DriverStats = {
   total: number
-  by_status: Record<string, number>
+  by_workshop: Record<string, number>
   by_license_type: Record<string, number>
-  /** bus_driver.vehicle_type_label 聚合 */
-  by_vehicle_type_label: Record<string, number>
+  by_employment_status: Record<string, number>
 }
 
 export async function listDrivers(params?: {
   q?: string
   skip?: number
   limit?: number
-  status?: string
+  workshop?: string
   license_type?: string
 }): Promise<DriverListResponse> {
   const { data } = await http.get<DriverListResponse>('/drivers', { params })

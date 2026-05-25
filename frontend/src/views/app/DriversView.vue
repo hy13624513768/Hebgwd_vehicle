@@ -4,62 +4,31 @@
       <div class="driver-overview__kpi">
         <span class="driver-overview__kpi-label">在册驾驶员</span>
         <strong class="driver-overview__kpi-num">{{ stats.total }}</strong>
+        <span class="driver-overview__kpi-breakdown">
+          本单位驾驶员 <strong>{{ employmentKpi.internal }}</strong> 人，
+          外包驾驶员 <strong>{{ employmentKpi.outsourced }}</strong> 人
+        </span>
         <span class="driver-overview__kpi-hint">（筛选结果共 {{ totalCount }} 条）</span>
-      </div>
-      <div class="driver-overview__row">
-        <span class="driver-overview__row-label">按状态</span>
-        <div class="driver-overview__chips">
-          <button
-            v-for="[label, cnt] in statusChips"
-            :key="'st-' + label"
-            type="button"
-            class="stat-chip"
-            :class="{ 'stat-chip--active': statusChipActive(label) }"
-            @click="toggleStatusChip(label)"
-          >
-            {{ label }} <em>{{ cnt }}</em>
-          </button>
-        </div>
-      </div>
-      <div class="driver-overview__row">
-        <span class="driver-overview__row-label">准驾类型</span>
-        <div class="driver-overview__chips">
-          <button
-            v-for="[label, cnt] in licenseChips"
-            :key="'lt-' + label"
-            type="button"
-            class="stat-chip stat-chip--muted"
-            :class="{ 'stat-chip--active': licenseChipActive(label) }"
-            @click="toggleLicenseChip(label)"
-          >
-            {{ label }} <em>{{ cnt }}</em>
-          </button>
-        </div>
       </div>
 
       <div class="driver-charts" aria-label="驾驶员分布图表">
-        <div class="driver-chart driver-chart--donut">
-          <h3 class="driver-chart__title">状态分布</h3>
-          <div class="driver-chart__donut-body">
-            <div
-              class="driver-chart__donut"
-              role="img"
-              :aria-label="statusDonutAriaLabel"
-              :style="{ background: statusDonutBackground }"
-            />
-            <ul class="driver-chart__legend" aria-hidden="true">
-              <li v-for="([label, cnt], idx) in statusChips" :key="'lg-' + label" class="driver-chart__legend-item">
-                <i class="driver-chart__swatch" :style="barFillStyle(idx)" />
-                <span class="driver-chart__legend-text">{{ label }}</span>
-                <span class="driver-chart__legend-num">{{ cnt }}</span>
-              </li>
-            </ul>
-          </div>
+        <div class="driver-chart driver-chart--bars">
+          <h3 class="driver-chart__title">车间分布</h3>
+          <p v-if="!workshopChips.length" class="driver-chart__empty">暂无车间分布数据</p>
+          <ul v-else class="driver-chart__bar-list driver-chart__bar-list--scroll" role="list">
+            <li v-for="([label, cnt], idx) in workshopChips" :key="'ws-bar-' + label" class="driver-chart__bar-row" role="listitem">
+              <span class="driver-chart__bar-label" :title="label">{{ label }}</span>
+              <div class="driver-chart__bar-track" :title="`${label}：${cnt} 人`">
+                <div class="driver-chart__bar-fill" :style="workshopBarFillStyle(cnt, idx)" />
+              </div>
+              <span class="driver-chart__bar-val">{{ cnt }}</span>
+            </li>
+          </ul>
         </div>
         <div class="driver-chart driver-chart--bars">
           <h3 class="driver-chart__title">准驾类型分布</h3>
           <p v-if="!licenseChips.length" class="driver-chart__empty">暂无准驾类型数据</p>
-          <ul v-else class="driver-chart__bar-list" role="list">
+          <ul v-else class="driver-chart__bar-list driver-chart__bar-list--scroll" role="list">
             <li v-for="([label, cnt], idx) in licenseChips" :key="'bar-' + label" class="driver-chart__bar-row" role="listitem">
               <span class="driver-chart__bar-label" :title="label">{{ label }}</span>
               <div class="driver-chart__bar-track" :title="`${label}：${cnt} 人`">
@@ -93,14 +62,14 @@
       </div>
       <div class="toolbar__filters">
         <div class="toolbar__field">
-          <span class="toolbar-label">状态</span>
+          <span class="toolbar-label">车间</span>
           <SearchableSelect
-            v-model="filterStatusId"
+            v-model="filterWorkshopId"
             class="toolbar-select"
-            :options="statusOptions"
+            :options="workshopFilterOptions"
             allow-empty
             empty-label="全部"
-            search-placeholder="输入状态关键字…"
+            search-placeholder="输入车间关键字…"
           />
         </div>
         <div class="toolbar__field">
@@ -118,7 +87,7 @@
       <div class="toolbar__actions">
         <button type="button" class="primary toolbar__btn-query" :disabled="loading" @click="loadList">查询</button>
         <button
-          v-if="canManageFleet"
+          v-if="canEditDriverRecords"
           type="button"
           class="primary toolbar__btn-new"
           :disabled="loading"
@@ -142,31 +111,33 @@
             <th>姓名</th>
             <th>电话</th>
             <th>准驾</th>
-            <th>车辆类型标签</th>
+            <th>车间</th>
             <th>状态</th>
+            <th>年龄</th>
             <th>身份证号</th>
             <th>健康体检报告</th>
             <th>外包人员入职手续</th>
             <th>首次入职</th>
-            <th v-if="canManageFleet" class="w">操作</th>
+            <th v-if="canEditDriverRecords" class="w">操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="rows.length === 0">
-            <td :colspan="canManageFleet ? 11 : 10" class="empty-hint">暂无数据，可调整筛选后点击查询。</td>
+            <td :colspan="canEditDriverRecords ? 12 : 11" class="empty-hint">暂无数据，可调整筛选后点击查询。</td>
           </tr>
           <tr v-for="(d, idx) in rows" :key="d.id">
             <td class="muted">{{ displayRowSeq(idx) }}</td>
             <td class="strong">{{ d.name }}</td>
             <td>{{ d.phone }}</td>
             <td>{{ d.license_type || '—' }}</td>
-            <td class="t" :title="d.vehicle_type_label || ''">{{ d.vehicle_type_label || '—' }}</td>
-            <td>{{ d.status || '—' }}</td>
+            <td>{{ driverWorkshopLabel(d) }}</td>
+            <td>{{ driverEmploymentStatusLabel(d) }}</td>
+            <td>{{ formatAgeFromIdCard(d.id_card) }}</td>
             <td class="mono">{{ d.id_card || '—' }}</td>
             <td class="col-long" :title="d.health_check_report || ''">{{ trunc(d.health_check_report, 24) }}</td>
             <td class="col-long" :title="d.outsourcing_onboarding || ''">{{ trunc(d.outsourcing_onboarding, 24) }}</td>
             <td>{{ d.first_hire_date ? fmtDate(d.first_hire_date) : '—' }}</td>
-            <td v-if="canManageFleet" class="w">
+            <td v-if="canEditDriverRecords" class="w">
               <button type="button" class="link" @click="openEdit(d)">编辑</button>
               <button type="button" class="link danger" @click="onDelete(d)">删除</button>
             </td>
@@ -180,7 +151,7 @@
           <li v-for="(d, idx) in rows" :key="`m-${d.id}`" class="driver-card">
             <div class="driver-card__top">
               <span class="driver-card__name">{{ d.name }}</span>
-              <span class="driver-card__status">{{ d.status || '—' }}</span>
+              <span class="driver-card__status">{{ driverEmploymentStatusLabel(d) }}</span>
             </div>
             <div class="driver-card__row">
               <span class="driver-card__k">序号</span>
@@ -195,8 +166,12 @@
               <span class="driver-card__v">{{ d.license_type || '—' }}</span>
             </div>
             <div class="driver-card__row">
-              <span class="driver-card__k">车辆类型</span>
-              <span class="driver-card__v">{{ d.vehicle_type_label || '—' }}</span>
+              <span class="driver-card__k">车间</span>
+              <span class="driver-card__v">{{ driverWorkshopLabel(d) }}</span>
+            </div>
+            <div class="driver-card__row">
+              <span class="driver-card__k">年龄</span>
+              <span class="driver-card__v">{{ formatAgeFromIdCard(d.id_card) }}</span>
             </div>
             <div class="driver-card__row">
               <span class="driver-card__k">身份证</span>
@@ -214,7 +189,7 @@
               <span class="driver-card__k">首次入职</span>
               <span class="driver-card__v">{{ d.first_hire_date ? fmtDate(d.first_hire_date) : '—' }}</span>
             </div>
-            <div v-if="canManageFleet" class="driver-card__actions">
+            <div v-if="canEditDriverRecords" class="driver-card__actions">
               <button type="button" class="driver-card__btn" @click="openEdit(d)">编辑</button>
               <button type="button" class="driver-card__btn driver-card__btn--danger" @click="onDelete(d)">删除</button>
             </div>
@@ -260,36 +235,114 @@
     <AppModal :open="modalOpen" :title="modalTitle" @close="modalOpen = false">
       <div class="form form--drivers">
         <label>姓名</label>
-        <input v-model.trim="form.name" />
+        <input
+          v-model.trim="form.name"
+          :readonly="!canEditDriverRecords"
+          @focus="onFieldFocus"
+          @click="onFieldClick"
+        />
 
         <label>电话</label>
-        <input v-model.trim="form.phone" />
+        <input
+          v-model.trim="form.phone"
+          type="tel"
+          inputmode="numeric"
+          maxlength="11"
+          pattern="\d{11}"
+          placeholder="11 位手机号"
+          :readonly="!canEditDriverRecords"
+          @input="onPhoneInput"
+          @focus="onFieldFocus"
+          @click="onFieldClick"
+        />
 
         <label>准驾</label>
-        <input v-model.trim="form.license_type" placeholder="如 A1、C1" />
+        <SearchableSelect
+          v-model="formLicenseId"
+          :options="licenseFormOptions"
+          allow-empty
+          empty-label="请选择准驾类型"
+          search-placeholder="输入准驾关键字…"
+          :disabled="!canEditDriverRecords"
+          @denied="denyEdit"
+        />
 
-        <label>车辆类型标签</label>
-        <input v-model.trim="form.vehicle_type_label" placeholder="与车辆登记「车辆类型」一致，如 小型轿车" />
+        <label>车间</label>
+        <SearchableSelect
+          v-model="formWorkshopId"
+          :options="workshopFormOptions"
+          allow-empty
+          empty-label="请选择车间"
+          search-placeholder="输入车间关键字…"
+          :disabled="!canEditDriverRecords"
+          @denied="denyEdit"
+        />
 
         <label>状态</label>
-        <input v-model.trim="form.status" placeholder="如 在岗" />
+        <SearchableSelect
+          v-model="formEmploymentStatusId"
+          :options="employmentStatusFormOptions"
+          allow-empty
+          empty-label="请选择状态"
+          search-placeholder="本单位 / 外包…"
+          :disabled="!canEditDriverRecords"
+          @denied="denyEdit"
+        />
 
         <label>身份证号</label>
-        <input v-model.trim="form.id_card" />
+        <input
+          v-model.trim="form.id_card"
+          class="mono"
+          maxlength="18"
+          placeholder="18 位身份证号"
+          :readonly="!canEditDriverRecords"
+          @input="onIdCardInput"
+          @focus="onFieldFocus"
+          @click="onFieldClick"
+        />
+
+        <label>年龄</label>
+        <div class="form-readonly" aria-live="polite">{{ formAgeDisplay }}</div>
 
         <label>健康体检报告</label>
-        <textarea v-model.trim="form.health_check_report" rows="2" />
+        <textarea
+          v-model.trim="form.health_check_report"
+          rows="2"
+          :readonly="!canEditDriverRecords"
+          @focus="onFieldFocus"
+          @click="onFieldClick"
+        />
 
         <label>外包人员入职手续</label>
-        <textarea v-model.trim="form.outsourcing_onboarding" rows="2" />
+        <textarea
+          v-model.trim="form.outsourcing_onboarding"
+          rows="2"
+          :readonly="!canEditDriverRecords"
+          @focus="onFieldFocus"
+          @click="onFieldClick"
+        />
 
         <label>首次入职时间</label>
-        <input v-model="form.first_hire_date" type="date" />
+        <input
+          v-model="form.first_hire_date"
+          type="date"
+          :readonly="!canEditDriverRecords"
+          @focus="onFieldFocus"
+          @click="onFieldClick"
+        />
       </div>
 
       <template #footer>
         <button type="button" class="ghost" @click="modalOpen = false">取消</button>
-        <button type="button" class="primary" :disabled="saving" @click="save">保存</button>
+        <button
+          v-if="canEditDriverRecords"
+          type="button"
+          class="primary"
+          :disabled="saving"
+          @click="save"
+        >
+          保存
+        </button>
       </template>
     </AppModal>
   </div>
@@ -301,13 +354,44 @@ import { computed, onMounted, reactive, ref } from 'vue'
 
 import * as api from '@/api/drivers'
 import type { DriverStats } from '@/api/drivers'
+import { fetchWorkshops, type Workshop } from '@/api/workshops'
 import type { Driver } from '@/api/types'
 import AppModal from '@/components/AppModal.vue'
 import SearchableSelect, { type SearchableOption } from '@/components/SearchableSelect.vue'
 import { usePermissions } from '@/composables/usePermissions'
 import { fmtDate } from '@/utils/format'
+import { ageFromIdCard, formatAgeFromIdCard } from '@/utils/idCard'
 
-const { canManageFleet } = usePermissions()
+const EDIT_DENIED_MSG = '当前账号无权修改驾驶员档案，请联系段级或超级管理员。'
+
+/** 人员状态：仅本单位 / 外包 */
+const EMPLOYMENT_STATUS_OPTIONS: SearchableOption[] = [
+  { id: 1, label: '本单位', keywords: '本单位 在岗 在职' },
+  { id: 2, label: '外包', keywords: '外包 外包人员' },
+]
+
+const COMMON_LICENSE_TYPES = ['A1', 'A2', 'A3', 'B1', 'B2', 'C1'] as const
+
+/** 编辑框准驾下拉中不展示的机型（大小写不敏感） */
+const EXCLUDED_LICENSE_TYPES = new Set([
+  'C2',
+  'C3',
+  'C4',
+  'C5',
+  'C6',
+  'D',
+  'E',
+  'F',
+  'M',
+  'N',
+  'P',
+])
+
+const PHONE_PATTERN = /^\d{11}$/
+const ID_CARD_PATTERN = /^\d{17}[\dX]$/
+
+const { canManageAccounts } = usePermissions()
+const canEditDriverRecords = canManageAccounts
 
 const loading = ref(true)
 const saving = ref(false)
@@ -321,10 +405,15 @@ const listPager = reactive({
   page: 1,
   page_size: 15,
 })
-const driverStatuses = ref<string[]>([])
+const driverWorkshops = ref<string[]>([])
 const driverLicenseTypes = ref<string[]>([])
-const filterStatusId = ref(0)
+const workshopsMaster = ref<Workshop[]>([])
+const filterWorkshopId = ref(0)
 const filterLicenseId = ref(0)
+const formWorkshopId = ref(0)
+const formLicenseId = ref(0)
+const formEmploymentStatusId = ref(0)
+const employmentStatusFormOptions = EMPLOYMENT_STATUS_OPTIONS
 
 const modalOpen = ref(false)
 const modalTitle = ref('新增驾驶员')
@@ -333,28 +422,102 @@ const editingId = ref<number | null>(null)
 const form = reactive({
   name: '',
   phone: '',
-  license_type: '',
-  vehicle_type_label: '',
-  status: '',
   id_card: '',
   health_check_report: '',
   outsourcing_onboarding: '',
   first_hire_date: '',
 })
 
-const statusOptions = computed<SearchableOption[]>(() => {
+const formAgeDisplay = computed(() => {
+  const age = ageFromIdCard(form.id_card)
+  if (age === null) {
+    const raw = form.id_card.trim()
+    return raw ? '无法识别（请检查身份证号）' : '填写身份证号后自动计算'
+  }
+  return `${age} 岁`
+})
+
+function driverWorkshopLabel(d: Driver) {
+  return (d.workshop_name || '').trim() || '未分配'
+}
+
+function driverEmploymentStatusLabel(d: Driver) {
+  const raw = (d.status || '').trim()
+  if (!raw) return '—'
+  if (raw === '本单位' || raw === '外包') return raw
+  if (raw.includes('外包')) return '外包'
+  if (raw === '在岗' || raw === '在职') return '本单位'
+  return raw
+}
+
+function employmentStatusIdFromLabel(label: string): number {
+  const t = label.trim()
+  if (!t || t === '—') return 0
+  if (t === '外包' || t.includes('外包')) return 2
+  if (t === '本单位') return 1
+  return 1
+}
+
+function denyEdit() {
+  window.alert(EDIT_DENIED_MSG)
+}
+
+function onPhoneInput(e: Event) {
+  const el = e.target as HTMLInputElement
+  const digits = el.value.replace(/\D/g, '').slice(0, 11)
+  if (el.value !== digits) el.value = digits
+  form.phone = digits
+}
+
+function onIdCardInput(e: Event) {
+  const el = e.target as HTMLInputElement
+  const normalized = el.value
+    .toUpperCase()
+    .replace(/[^0-9X]/g, '')
+    .slice(0, 18)
+  if (el.value !== normalized) el.value = normalized
+  form.id_card = normalized
+}
+
+function validateDriverForm(): string | null {
+  const phone = form.phone.trim()
+  if (!PHONE_PATTERN.test(phone)) return '电话须为 11 位数字'
+  const idCard = form.id_card.trim()
+  if (idCard && !ID_CARD_PATTERN.test(idCard)) return '身份证号须为 18 位（末位可为 X）'
+  return null
+}
+
+function onFieldFocus() {
+  if (!canEditDriverRecords.value) denyEdit()
+}
+
+function onFieldClick() {
+  if (!canEditDriverRecords.value) denyEdit()
+}
+
+const workshopFilterOptions = computed<SearchableOption[]>(() => {
+  const names = new Set<string>()
+  for (const w of driverWorkshops.value) names.add(w)
+  if (stats.value?.by_workshop) {
+    for (const k of Object.keys(stats.value.by_workshop)) names.add(k)
+  }
+  const sorted = [...names].sort((a, b) => a.localeCompare(b, 'zh-CN'))
   const out: SearchableOption[] = []
   let nid = 1
-  if (stats.value?.by_status['(未填)']) {
-    out.push({ id: nid, label: '(未填)', keywords: '(未填) 未填 空' })
-    nid += 1
-  }
-  for (const s of driverStatuses.value) {
-    out.push({ id: nid, label: s, keywords: s })
+  for (const label of sorted) {
+    out.push({ id: nid, label, keywords: label })
     nid += 1
   }
   return out
 })
+
+const workshopFormOptions = computed<SearchableOption[]>(() =>
+  workshopsMaster.value.map((w) => ({
+    id: w.id,
+    label: w.name,
+    keywords: w.name,
+  })),
+)
 
 const licenseTypeOptions = computed<SearchableOption[]>(() => {
   const out: SearchableOption[] = []
@@ -370,14 +533,47 @@ const licenseTypeOptions = computed<SearchableOption[]>(() => {
   return out
 })
 
-const statusChips = computed(() => {
+function isSelectableLicenseType(label: string): boolean {
+  const t = label.trim()
+  if (!t) return false
+  return !EXCLUDED_LICENSE_TYPES.has(t.toUpperCase())
+}
+
+const licenseFormOptions = computed<SearchableOption[]>(() => {
+  const labels = new Set<string>()
+  for (const t of COMMON_LICENSE_TYPES) labels.add(t)
+  for (const s of driverLicenseTypes.value) {
+    if (s && isSelectableLicenseType(s)) labels.add(s)
+  }
+  return [...labels].sort().map((label, idx) => ({
+    id: idx + 1,
+    label,
+    keywords: label,
+  }))
+})
+
+const employmentKpi = computed(() => {
+  const m = stats.value?.by_employment_status
+  return {
+    internal: m?.['本单位'] ?? 0,
+    outsourced: m?.['外包'] ?? 0,
+  }
+})
+
+const workshopChips = computed(() => {
   if (!stats.value) return [] as [string, number][]
-  return Object.entries(stats.value.by_status).sort((a, b) => b[1] - a[1])
+  return Object.entries(stats.value.by_workshop).sort((a, b) => b[1] - a[1])
 })
 
 const licenseChips = computed(() => {
   if (!stats.value) return [] as [string, number][]
   return Object.entries(stats.value.by_license_type).sort((a, b) => b[1] - a[1])
+})
+
+const workshopBarMax = computed(() => {
+  const chips = workshopChips.value
+  if (!chips.length) return 1
+  return Math.max(...chips.map((x) => x[1]), 1)
 })
 
 const licenseBarMax = computed(() => {
@@ -389,47 +585,6 @@ const licenseBarMax = computed(() => {
 const totalDriverPages = computed(() =>
   Math.max(1, Math.ceil(totalCount.value / listPager.page_size) || 1),
 )
-
-const statusDonutBackground = computed(() => {
-  const t = stats.value?.total ?? 0
-  if (!t || !statusChips.value.length) return 'conic-gradient(var(--cl-border-cream) 0% 100%)'
-  return donutGradientFromEntries(statusChips.value, t)
-})
-
-const statusDonutAriaLabel = computed(() => {
-  if (!stats.value) return '状态分布'
-  return `状态分布：${statusChips.value.map(([l, c]) => `${l} ${c}人`).join('，')}`
-})
-
-/**
- * 与 BAR_FILL_GRADIENTS 逐项对应：浅色（条起点）→ 深色（条终点）。
- * 用于 conic-gradient 每段沿圆心角插值，视觉与横向条「左浅右深」同色系。
- */
-const BAR_DONUT_WEDGE_STOPS = [
-  ['rgba(201, 100, 66, 0.32)', '#c96442'],
-  ['rgba(215, 119, 87, 0.35)', '#d97757'],
-  ['rgba(181, 138, 90, 0.4)', '#9a7340'],
-  ['rgba(201, 161, 91, 0.42)', '#b8883a'],
-  ['rgba(94, 93, 89, 0.28)', '#6b5d4b'],
-  ['rgba(167, 107, 82, 0.38)', '#a76b52'],
-  ['rgba(77, 76, 72, 0.32)', '#5c5347'],
-  ['rgba(201, 100, 66, 0.18)', '#c47a5f'],
-] as const
-
-function donutGradientFromEntries(entries: [string, number][], total: number): string {
-  let acc = 0
-  const stops: string[] = []
-  entries.forEach(([_, cnt], i) => {
-    const pct = (cnt / total) * 100
-    if (pct <= 0) return
-    const [c0, c1] = BAR_DONUT_WEDGE_STOPS[i % BAR_DONUT_WEDGE_STOPS.length]
-    const s = acc
-    const e = acc + pct
-    stops.push(`${c0} ${s.toFixed(2)}%`, `${c1} ${e.toFixed(2)}%`)
-    acc = e
-  })
-  return stops.length ? `conic-gradient(${stops.join(', ')})` : 'conic-gradient(var(--cl-border-cream) 0% 100%)'
-}
 
 /** 暖色主题条形渐变，与车辆管理页分布图一致（VehiclesView） */
 const BAR_FILL_GRADIENTS = [
@@ -450,6 +605,13 @@ function barFillStyle(index: number): Record<string, string> {
   }
 }
 
+/** 车间条形宽度 + 渐变（避免模板中调用独立函数名在 HMR 下偶发非函数错误） */
+function workshopBarFillStyle(cnt: number, idx: number): Record<string, string> {
+  const max = workshopBarMax.value
+  const pct = max > 0 ? (cnt / max) * 100 : 0
+  return { width: `${pct}%`, ...barFillStyle(idx) }
+}
+
 /** 准驾条形宽度 + 渐变（避免模板中调用独立函数名在 HMR 下偶发非函数错误） */
 function licenseBarFillStyle(cnt: number, idx: number): Record<string, string> {
   const max = licenseBarMax.value
@@ -467,9 +629,9 @@ function displayRowSeq(index: number) {
   return (listPager.page - 1) * listPager.page_size + index + 1
 }
 
-function selectedStatusQuery(): string | undefined {
-  if (!filterStatusId.value) return undefined
-  return statusOptions.value.find((x) => x.id === filterStatusId.value)?.label
+function selectedWorkshopQuery(): string | undefined {
+  if (!filterWorkshopId.value) return undefined
+  return workshopFilterOptions.value.find((x) => x.id === filterWorkshopId.value)?.label
 }
 
 function selectedLicenseQuery(): string | undefined {
@@ -477,36 +639,12 @@ function selectedLicenseQuery(): string | undefined {
   return licenseTypeOptions.value.find((x) => x.id === filterLicenseId.value)?.label
 }
 
-function statusChipActive(label: string) {
-  const qv = selectedStatusQuery()
-  return qv === label
-}
-
-function licenseChipActive(label: string) {
-  const qv = selectedLicenseQuery()
-  return qv === label
-}
-
-function toggleStatusChip(label: string) {
-  const opt = statusOptions.value.find((x) => x.label === label)
-  if (!opt) return
-  filterStatusId.value = filterStatusId.value === opt.id ? 0 : opt.id
-  void loadList()
-}
-
-function toggleLicenseChip(label: string) {
-  const opt = licenseTypeOptions.value.find((x) => x.label === label)
-  if (!opt) return
-  filterLicenseId.value = filterLicenseId.value === opt.id ? 0 : opt.id
-  void loadList()
-}
-
 function buildDriverListParams() {
   return {
     q: q.value || undefined,
     skip: (listPager.page - 1) * listPager.page_size,
     limit: listPager.page_size,
-    status: selectedStatusQuery(),
+    workshop: selectedWorkshopQuery(),
     license_type: selectedLicenseQuery(),
   }
 }
@@ -573,9 +711,10 @@ async function loadAll() {
   msg.value = ''
   listPager.page = 1
   try {
-    const f = await api.getDriverFilters()
-    driverStatuses.value = f.statuses
+    const [f, ws] = await Promise.all([api.getDriverFilters(), fetchWorkshops()])
+    driverWorkshops.value = f.workshops
     driverLicenseTypes.value = f.license_types
+    workshopsMaster.value = ws
     stats.value = await api.getDriverStats()
     await fetchListData()
   } catch {
@@ -588,16 +727,35 @@ async function loadAll() {
 function resetForm() {
   form.name = ''
   form.phone = ''
-  form.license_type = ''
-  form.vehicle_type_label = ''
-  form.status = ''
   form.id_card = ''
   form.health_check_report = ''
   form.outsourcing_onboarding = ''
   form.first_hire_date = ''
+  formWorkshopId.value = 0
+  formLicenseId.value = 0
+  formEmploymentStatusId.value = 0
+}
+
+function syncFormEmploymentStatusFromId(): string {
+  return employmentStatusFormOptions.find((x) => x.id === formEmploymentStatusId.value)?.label ?? ''
+}
+
+function syncFormLicenseFromId() {
+  const label = licenseFormOptions.value.find((x) => x.id === formLicenseId.value)?.label
+  return label || ''
+}
+
+function syncFormWorkshopFromId(): number | null {
+  if (!formWorkshopId.value) return null
+  const hit = workshopsMaster.value.find((w) => w.id === formWorkshopId.value)
+  return hit?.id ?? null
 }
 
 function openCreate() {
+  if (!canEditDriverRecords.value) {
+    denyEdit()
+    return
+  }
   editingId.value = null
   modalTitle.value = '新增驾驶员'
   resetForm()
@@ -605,30 +763,44 @@ function openCreate() {
 }
 
 function openEdit(d: Driver) {
+  if (!canEditDriverRecords.value) {
+    denyEdit()
+    return
+  }
   editingId.value = d.id
   modalTitle.value = '编辑驾驶员'
   form.name = d.name
   form.phone = d.phone
-  form.license_type = d.license_type
-  form.vehicle_type_label = d.vehicle_type_label || ''
-  form.status = d.status
   form.id_card = d.id_card || ''
   form.health_check_report = d.health_check_report || ''
   form.outsourcing_onboarding = d.outsourcing_onboarding || ''
   form.first_hire_date = d.first_hire_date ? d.first_hire_date.slice(0, 10) : ''
+  formWorkshopId.value = d.workshop_id ?? 0
+  const licOpt = licenseFormOptions.value.find((x) => x.label === (d.license_type || '').trim())
+  formLicenseId.value = licOpt?.id ?? 0
+  formEmploymentStatusId.value = employmentStatusIdFromLabel(driverEmploymentStatusLabel(d))
   modalOpen.value = true
 }
 
 async function save() {
+  if (!canEditDriverRecords.value) {
+    denyEdit()
+    return
+  }
+  const formErr = validateDriverForm()
+  if (formErr) {
+    msg.value = formErr
+    return
+  }
   saving.value = true
   msg.value = ''
   try {
     const payload: Record<string, unknown> = {
       name: form.name,
       phone: form.phone,
-      license_type: form.license_type,
-      vehicle_type_label: form.vehicle_type_label,
-      status: form.status,
+      license_type: syncFormLicenseFromId(),
+      workshop_id: syncFormWorkshopFromId(),
+      status: syncFormEmploymentStatusFromId(),
       id_card: form.id_card || null,
       health_check_report: form.health_check_report || null,
       outsourcing_onboarding: form.outsourcing_onboarding || null,
@@ -696,58 +868,19 @@ onMounted(loadAll)
   color: var(--cl-near-black);
 }
 
+.driver-overview__kpi-breakdown {
+  font-size: 12px;
+  color: var(--cl-charcoal);
+}
+
+.driver-overview__kpi-breakdown strong {
+  font-weight: 800;
+  color: var(--cl-coral);
+}
+
 .driver-overview__kpi-hint {
   font-size: 12px;
   color: var(--cl-olive);
-}
-
-.driver-overview__row {
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 8px 10px;
-  align-items: start;
-  margin-top: 8px;
-}
-
-.driver-overview__row-label {
-  font-size: 12px;
-  font-weight: 800;
-  color: var(--cl-charcoal);
-  padding-top: 4px;
-}
-
-.driver-overview__chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.stat-chip {
-  cursor: pointer;
-  border: 1px solid var(--cl-border-cream);
-  background: var(--cl-white);
-  border-radius: 999px;
-  padding: 6px 12px;
-  font-size: 12px;
-  color: var(--cl-near-black);
-  font-family: inherit;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.stat-chip em {
-  font-style: normal;
-  font-weight: 800;
-  color: var(--cl-coral);
-  margin-left: 4px;
-}
-
-.stat-chip--muted {
-  background: var(--cl-ivory);
-}
-
-.stat-chip--active {
-  border-color: var(--cl-coral);
-  box-shadow: 0 0 0 2px rgba(200, 90, 60, 0.2);
 }
 
 .driver-charts {
@@ -783,61 +916,6 @@ onMounted(loadAll)
   font-family: Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif;
 }
 
-.driver-chart__donut-body {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 16px 20px;
-}
-
-.driver-chart__donut {
-  flex-shrink: 0;
-  width: min(168px, 42vw);
-  height: min(168px, 42vw);
-  border-radius: 50%;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
-  -webkit-mask: radial-gradient(circle, transparent 52%, #000 53%);
-  mask: radial-gradient(circle, transparent 52%, #000 53%);
-}
-
-.driver-chart__legend {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  flex: 1;
-  min-width: 140px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 12px;
-}
-
-.driver-chart__legend-item {
-  display: grid;
-  grid-template-columns: 12px 1fr auto;
-  gap: 8px;
-  align-items: center;
-  color: var(--cl-near-black);
-}
-
-.driver-chart__swatch {
-  width: 12px;
-  height: 12px;
-  border-radius: 3px;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
-}
-
-.driver-chart__legend-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.driver-chart__legend-num {
-  font-weight: 800;
-  color: var(--cl-coral);
-}
-
 .driver-chart__empty {
   margin: 0;
   font-size: 13px;
@@ -851,6 +929,15 @@ onMounted(loadAll)
   display: flex;
   flex-direction: column;
   gap: 7px;
+}
+
+/* 与 VehiclesView `.bars--scroll` 一致：固定可视高度，超出纵向滚动 */
+.driver-chart__bar-list--scroll {
+  max-height: 196px;
+  overflow-y: auto;
+  padding-right: 4px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
 }
 
 .driver-chart__bar-row {
@@ -1408,34 +1495,15 @@ th {
     font-size: 1.5rem;
   }
 
+  .driver-overview__kpi-breakdown {
+    width: 100%;
+    flex-basis: 100%;
+    font-size: 13px;
+  }
+
   .driver-overview__kpi-hint {
     width: 100%;
     flex-basis: 100%;
-  }
-
-  .driver-overview__row {
-    grid-template-columns: 1fr;
-    margin-top: 10px;
-    gap: 6px 0;
-  }
-
-  .driver-overview__row-label {
-    padding-top: 0;
-    font-size: 13px;
-  }
-
-  .driver-overview__chips {
-    gap: 10px;
-  }
-
-  .stat-chip {
-    min-height: 44px;
-    padding: 8px 14px;
-    font-size: 13px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    touch-action: manipulation;
   }
 
   .driver-charts {
@@ -1459,38 +1527,12 @@ th {
     margin-bottom: 14px;
   }
 
-  .driver-chart__donut-body {
-    flex-direction: column;
-    align-items: center;
-    text-align: left;
-    gap: 14px;
-  }
-
-  .driver-chart__donut {
-    width: min(220px, 72vw);
-    height: min(220px, 72vw);
-  }
-
-  .driver-chart__legend {
-    width: 100%;
-    min-width: 0;
-    font-size: 13px;
-    gap: 8px;
-  }
-
-  .driver-chart__legend-item {
-    grid-template-columns: 14px 1fr auto;
-    gap: 10px;
-  }
-
-  .driver-chart__legend-text {
-    white-space: normal;
-    line-height: 1.35;
-    word-break: break-word;
-  }
-
   .driver-chart__bar-list {
     gap: 7px;
+  }
+
+  .driver-chart__bar-list--scroll {
+    max-height: min(280px, 36vh);
   }
 
   .driver-chart__bar-row {
@@ -1782,6 +1824,19 @@ th {
     min-height: 88px;
     resize: vertical;
   }
+}
+
+.form-readonly {
+  min-height: 42px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--cl-border-cream, #e8e0d4);
+  background: var(--cl-warm-sand, #f5efe6);
+  color: var(--cl-near-black, #1a1a1a);
+  font-size: 14px;
+  line-height: 1.45;
+  display: flex;
+  align-items: center;
 }
 
 @media (max-width: 380px) {

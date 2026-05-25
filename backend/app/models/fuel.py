@@ -36,6 +36,9 @@ class FuelRecord(Base):
     gift_name: Mapped[str] = mapped_column(String(128), default="", nullable=False)
     volumn: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0.00"), nullable=False)
     workshop: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+    workshop_id: Mapped[int | None] = mapped_column(
+        ForeignKey("bus_workshop.id"), nullable=True, index=True
+    )
     car_no: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -51,6 +54,9 @@ class FuelBalance(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     card_no: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     workshop: Mapped[str] = mapped_column(String(128), default="", nullable=False)  # 车间
+    workshop_id: Mapped[int | None] = mapped_column(
+        ForeignKey("bus_workshop.id"), nullable=True, index=True
+    )
     vehicle_no: Mapped[str] = mapped_column(String(64), default="", nullable=False)  # 车号
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
     reserve_fund: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)

@@ -15,6 +15,7 @@ from app.models.fuel import FuelCard, FuelRecord
 from app.models.maintenance import MaintenanceRecord
 from app.models.trip_request import TripRequest
 from app.models.vehicle import Vehicle
+from app.models.workshop import Workshop
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -68,6 +69,7 @@ def export_drivers(db: DbSession, _: ExporterUser) -> StreamingResponse:
         "name",
         "phone",
         "license_type",
+        "workshop",
         "status",
         "id_card",
         "health_check_report",
@@ -75,6 +77,9 @@ def export_drivers(db: DbSession, _: ExporterUser) -> StreamingResponse:
         "first_hire_date",
         "user_id",
     ]
+    ws_name: dict[int, str] = {}
+    for ws in db.scalars(select(Workshop)).all():
+        ws_name[ws.id] = ws.name
     rows = [
         [
             d.id,
@@ -82,7 +87,8 @@ def export_drivers(db: DbSession, _: ExporterUser) -> StreamingResponse:
             d.name,
             d.phone,
             d.license_type,
-            d.status,
+            ws_name.get(d.workshop_id or 0, "") if d.workshop_id else "",
+            d.status or "",
             d.id_card or "",
             (d.health_check_report or "").replace("\n", " "),
             (d.outsourcing_onboarding or "").replace("\n", " "),

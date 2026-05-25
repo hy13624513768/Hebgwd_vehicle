@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -16,6 +16,9 @@ class User(Base):
     role: Mapped[str] = mapped_column(
         String(32), nullable=False, default="vehicle_driver"
     )  # super_admin / section_admin / workshop_* / vehicle_driver
+    workshop_id: Mapped[int | None] = mapped_column(
+        ForeignKey("bus_workshop.id"), nullable=True, index=True
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     failed_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

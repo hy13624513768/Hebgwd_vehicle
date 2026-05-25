@@ -27,9 +27,23 @@
             type="search"
             placeholder="搜索用户名 / 显示名"
             aria-label="搜索账号"
-            @keydown.enter.prevent="loadUsers"
+            @keydown.enter.prevent="runSearch"
           />
-          <button type="button" class="btn btn--ghost" @click="loadUsers">搜索</button>
+          <button type="button" class="btn btn--ghost" @click="runSearch">搜索</button>
+        </div>
+        <div class="toolbar__field">
+          <label class="toolbar__label" for="accounts-role-filter">分级</label>
+          <select
+            id="accounts-role-filter"
+            v-model="filterRole"
+            class="toolbar__select"
+            aria-label="按账号分级筛选"
+            @change="onRoleFilterChange"
+          >
+            <option v-for="opt in roleFilterOptions" :key="opt.value || 'all'" :value="opt.value">
+              {{ opt.label }}
+            </option>
+          </select>
         </div>
         <button type="button" class="btn btn--primary" @click="openCreate">新建账号</button>
       </div>
@@ -81,15 +95,16 @@
         <p v-if="!items.length && !loading" class="muted empty">暂无账号数据</p>
       </div>
 
-      <div v-if="total > limit" class="pager">
+      <div v-if="total > 0" class="pager">
+        <span class="pager__meta">本页 {{ items.length }} 条 · 共 {{ total }} 条</span>
+        <span class="pager__info">第 {{ pageNum }} / {{ totalPages }} 页</span>
         <button type="button" class="btn btn--ghost pager__btn" :disabled="skip <= 0 || loading" @click="pagePrev">
           上一页
         </button>
-        <span class="pager__info">第 {{ pageNum }} 页 · 共 {{ total }} 条</span>
         <button
           type="button"
           class="btn btn--ghost pager__btn"
-          :disabled="skip + limit >= total || loading"
+          :disabled="skip + PAGE_SIZE >= total || loading"
           @click="pageNext"
         >
           下一页
@@ -173,11 +188,13 @@ const roleDefs = ref<RoleDefinition[]>([])
 const roleDefsLoading = ref(false)
 const assignable = ref<string[]>([])
 
+const PAGE_SIZE = 15
+
 const items = ref<UserAdmin[]>([])
 const total = ref(0)
 const skip = ref(0)
-const limit = ref(50)
 const q = ref('')
+const filterRole = ref('')
 const loading = ref(false)
 
 const msg = ref('')
@@ -198,7 +215,17 @@ const form = ref({
 
 const modalTitle = computed(() => (modalMode.value === 'create' ? '新建账号' : '编辑账号'))
 
-const pageNum = computed(() => Math.floor(skip.value / limit.value) + 1)
+const pageNum = computed(() => Math.floor(skip.value / PAGE_SIZE) + 1)
+
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE) || 1))
+
+const roleFilterOptions = computed(() => {
+  const opts: { value: string; label: string }[] = [{ value: '', label: '全部分级' }]
+  for (const r of roleDefs.value) {
+    opts.push({ value: r.code, label: r.label })
+  }
+  return opts
+})
 
 const assignableSet = computed(() => new Set(assignable.value))
 
@@ -277,10 +304,10 @@ function roleLabel(role: string) {
     workshop_director: '车间主任',
     workshop_admin: '车间管理员',
     vehicle_driver: '车辆驾驶员',
-    admin: '管理员(旧)',
-    fleet_manager: '车管(旧)',
-    driver: '驾驶员(旧)',
-    staff: '普通用户(旧)',
+    admin: '超级管理员',
+    fleet_manager: '段级管理员',
+    driver: '车辆驾驶员',
+    staff: '普通用户',
   }
   return m[role] || role
 }
@@ -308,9 +335,27 @@ async function loadUsers() {
   loading.value = true
   msg.value = ''
   try {
-    const res = await usersApi.listUsers({ skip: skip.value, limit: limit.value, q: q.value || undefined })
-    items.value = res.items
-    total.value = res.total
+    const res = await usersApi.listUsers({
+      skip: skip.value,
+      limit: PAGE_SIZE,
+      q: q.value || undefined,
+      role: filterRole.value || undefined,
+    })
+    const maxSkip = Math.max(0, (Math.ceil(res.total / PAGE_SIZE) - 1) * PAGE_SIZE)
+    if (res.total > 0 && skip.value > maxSkip) {
+      skip.value = maxSkip
+      const res2 = await usersApi.listUsers({
+        skip: skip.value,
+        limit: PAGE_SIZE,
+        q: q.value || undefined,
+        role: filterRole.value || undefined,
+      })
+      items.value = res2.items
+      total.value = res2.total
+    } else {
+      items.value = res.items
+      total.value = res.total
+    }
   } catch (e: unknown) {
     msg.value = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || '加载账号列表失败'
     msgIsErr.value = true
@@ -319,14 +364,24 @@ async function loadUsers() {
   }
 }
 
+function runSearch() {
+  skip.value = 0
+  void loadUsers()
+}
+
+function onRoleFilterChange() {
+  skip.value = 0
+  void loadUsers()
+}
+
 function pagePrev() {
-  skip.value = Math.max(0, skip.value - limit.value)
-  loadUsers()
+  skip.value = Math.max(0, skip.value - PAGE_SIZE)
+  void loadUsers()
 }
 
 function pageNext() {
-  skip.value = skip.value + limit.value
-  loadUsers()
+  skip.value = skip.value + PAGE_SIZE
+  void loadUsers()
 }
 
 function openCreate() {
@@ -519,6 +574,34 @@ onMounted(async () => {
   min-width: 0;
 }
 
+.toolbar__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex: 0 1 168px;
+  min-width: 140px;
+}
+
+.toolbar__label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--cl-olive);
+  letter-spacing: 0.04em;
+}
+
+.toolbar__select {
+  min-height: 44px;
+  padding: 0.5rem 0.65rem;
+  border-radius: 10px;
+  border: 1px solid var(--cl-border-warm);
+  font: inherit;
+  background: var(--cl-white);
+  color: var(--cl-charcoal);
+  box-sizing: border-box;
+  width: 100%;
+  cursor: pointer;
+}
+
 .toolbar__search {
   flex: 1;
   min-width: 0;
@@ -690,10 +773,15 @@ onMounted(async () => {
   font-size: 0.875rem;
 }
 
+.pager__meta,
+.pager__info {
+  color: var(--cl-olive);
+}
+
 .pager__info {
   flex: 1 1 auto;
-  color: var(--cl-olive);
-  min-width: 10rem;
+  min-width: 8rem;
+  text-align: center;
 }
 
 .pager__btn {
@@ -778,6 +866,12 @@ select.inp {
   .toolbar__search-wrap {
     flex: none;
     width: 100%;
+  }
+
+  .toolbar__field {
+    flex: none;
+    width: 100%;
+    max-width: none;
   }
 
   .toolbar .btn--primary {

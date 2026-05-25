@@ -8,6 +8,7 @@ from app.core.deps import CurrentUser, DbSession
 from app.core.rbac import FleetUser
 from app.models.vehicle import Vehicle
 from app.schemas.vehicle import VehicleCreate, VehicleOut, VehicleUpdate
+from app.services.workshop_service import apply_workshop_name_to_vehicle, get_workshop_by_id
 
 router = APIRouter(prefix="/vehicles", tags=["vehicles"])
 
@@ -51,6 +52,7 @@ def create_vehicle(db: DbSession, current: FleetUser, body: VehicleCreate) -> Ve
         status=body.status.strip(),
         remarks=body.remarks,
         org_unit=body.org_unit.strip(),
+        workshop_id=body.workshop_id,
         vehicle_class=body.vehicle_class.strip(),
         vehicle_type_label=body.vehicle_type_label.strip(),
         emission_std=body.emission_std.strip(),
@@ -58,6 +60,8 @@ def create_vehicle(db: DbSession, current: FleetUser, body: VehicleCreate) -> Ve
         registered_at=body.registered_at,
         created_by=current.id,
     )
+    if body.workshop_id is None:
+        apply_workshop_name_to_vehicle(db, row, body.org_unit)
     db.add(row)
     try:
         db.commit()
@@ -82,6 +86,17 @@ def update_vehicle(db: DbSession, _: FleetUser, vehicle_id: int, body: VehicleUp
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="车辆不存在")
     data = body.model_dump(exclude_unset=True)
+    if data.get("workshop_id"):
+        ws = get_workshop_by_id(db, int(data["workshop_id"]))
+        if not ws:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="车间不存在")
+        row.workshop_id = ws.id
+        row.org_unit = ws.name
+        data.pop("workshop_id", None)
+        data.pop("org_unit", None)
+    elif "org_unit" in data and data["org_unit"] is not None:
+        apply_workshop_name_to_vehicle(db, row, str(data["org_unit"]))
+        data.pop("org_unit", None)
     for k, v in data.items():
         if isinstance(v, str):
             v = v.strip()

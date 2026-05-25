@@ -3,10 +3,12 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from app.core.deps import CurrentUser, DbSession
 from app.core.rbac import FleetUser
 from app.models.driver import Driver
+from app.models.workshop import Workshop
 from app.schemas.driver import (
     DriverCreate,
     DriverFiltersOut,
@@ -15,15 +17,35 @@ from app.schemas.driver import (
     DriverStatsOut,
     DriverUpdate,
 )
+from app.services.driver_service import driver_to_out, drivers_to_out_list
+from app.services.workshop_service import get_workshop_by_id, list_active_workshop_names
 
 router = APIRouter(prefix="/drivers", tags=["drivers"])
 
 
+def _workshop_label(db: Session, workshop_id: int | None) -> str:
+    if not workshop_id:
+        return "(未分配)"
+    ws = db.get(Workshop, workshop_id)
+    return (ws.name if ws else "").strip() or "(未分配)"
+
+
+def _employment_status_bucket(raw: str | None) -> str:
+    """与前端 driverEmploymentStatusLabel 规则一致。"""
+    t = (raw or "").strip()
+    if not t:
+        return "(其他)"
+    if t in ("本单位", "外包"):
+        return t
+    if "外包" in t:
+        return "外包"
+    if t in ("在岗", "在职"):
+        return "本单位"
+    return "(其他)"
+
+
 @router.get("/filters", response_model=DriverFiltersOut)
 def driver_filters(db: DbSession, _: CurrentUser) -> DriverFiltersOut:
-    st_rows = db.execute(
-        select(Driver.status).where(Driver.status != "").distinct().order_by(Driver.status.asc())
-    ).all()
     lt_rows = db.execute(
         select(Driver.license_type)
         .where(Driver.license_type != "")
@@ -31,7 +53,7 @@ def driver_filters(db: DbSession, _: CurrentUser) -> DriverFiltersOut:
         .order_by(Driver.license_type.asc())
     ).all()
     return DriverFiltersOut(
-        statuses=[r[0] for r in st_rows],
+        workshops=list_active_workshop_names(db),
         license_types=[r[0] for r in lt_rows],
     )
 
@@ -39,25 +61,24 @@ def driver_filters(db: DbSession, _: CurrentUser) -> DriverFiltersOut:
 @router.get("/stats", response_model=DriverStatsOut)
 def driver_stats(db: DbSession, _: CurrentUser) -> DriverStatsOut:
     total = int(db.scalar(select(func.count()).select_from(Driver)) or 0)
-    by_status: dict[str, int] = {}
-    for st, cnt in db.execute(select(Driver.status, func.count()).group_by(Driver.status)).all():
-        key = (st or "").strip() or "(未填)"
-        by_status[key] = int(cnt)
+    by_workshop: dict[str, int] = {}
+    for wid, cnt in db.execute(select(Driver.workshop_id, func.count()).group_by(Driver.workshop_id)).all():
+        key = _workshop_label(db, wid)
+        by_workshop[key] = int(cnt)
     by_license_type: dict[str, int] = {}
     for lt, cnt in db.execute(select(Driver.license_type, func.count()).group_by(Driver.license_type)).all():
         key = (lt or "").strip() or "(未填)"
         by_license_type[key] = int(cnt)
-    by_vehicle_type_label: dict[str, int] = {}
-    for lbl, cnt in db.execute(
-        select(Driver.vehicle_type_label, func.count()).group_by(Driver.vehicle_type_label)
-    ).all():
-        key = (lbl or "").strip() or "(未填)"
-        by_vehicle_type_label[key] = int(cnt)
+    by_employment_status: dict[str, int] = {"本单位": 0, "外包": 0}
+    for st, cnt in db.execute(select(Driver.status, func.count()).group_by(Driver.status)).all():
+        bucket = _employment_status_bucket(st)
+        if bucket in by_employment_status:
+            by_employment_status[bucket] += int(cnt)
     return DriverStatsOut(
         total=total,
-        by_status=by_status,
+        by_workshop=by_workshop,
         by_license_type=by_license_type,
-        by_vehicle_type_label=by_vehicle_type_label,
+        by_employment_status=by_employment_status,
     )
 
 
@@ -68,7 +89,7 @@ def list_drivers(
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
     q: Annotated[str | None, Query(max_length=128)] = None,
-    status: Annotated[str | None, Query(max_length=64, description="状态（精确匹配）")] = None,
+    workshop: Annotated[str | None, Query(max_length=64, description="车间标准名（精确匹配）")] = None,
     license_type: Annotated[str | None, Query(max_length=32, description="准驾（精确匹配）")] = None,
 ) -> DriverListOut:
     conds: list = []
@@ -79,15 +100,18 @@ def list_drivers(
                 Driver.name.ilike(like),
                 Driver.phone.ilike(like),
                 Driver.id_card.ilike(like),
-                Driver.vehicle_type_label.ilike(like),
             )
         )
-    if status is not None and status.strip():
-        st = status.strip()
-        if st in ("(未填)", "未填"):
-            conds.append(Driver.status == "")
+    if workshop is not None and workshop.strip():
+        ws_name = workshop.strip()
+        if ws_name in ("(未分配)", "未分配"):
+            conds.append(Driver.workshop_id.is_(None))
         else:
-            conds.append(Driver.status == st)
+            ws = db.scalar(select(Workshop).where(Workshop.name == ws_name, Workshop.is_active.is_(True)))
+            if ws:
+                conds.append(Driver.workshop_id == ws.id)
+            else:
+                conds.append(Driver.workshop_id == -1)
     if license_type is not None and license_type.strip():
         lt = license_type.strip()
         if lt in ("(未填)", "未填"):
@@ -105,11 +129,16 @@ def list_drivers(
     total = int(db.scalar(cnt_stmt) or 0)
     stmt = stmt.order_by(Driver.sort_no.asc().nulls_last(), Driver.id.asc()).offset(skip).limit(limit)
     items = list(db.scalars(stmt).all())
-    return DriverListOut(items=items, total=total)
+    return DriverListOut(items=drivers_to_out_list(db, items), total=total)
 
 
 @router.post("", response_model=DriverOut, status_code=status.HTTP_201_CREATED)
 def create_driver(db: DbSession, current: FleetUser, body: DriverCreate) -> Driver:
+    workshop_id = body.workshop_id
+    if workshop_id:
+        ws = get_workshop_by_id(db, workshop_id)
+        if not ws:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="车间不存在")
     row = Driver(
         sort_no=body.sort_no,
         name=body.name.strip(),
@@ -121,6 +150,7 @@ def create_driver(db: DbSession, current: FleetUser, body: DriverCreate) -> Driv
         health_check_report=body.health_check_report,
         outsourcing_onboarding=body.outsourcing_onboarding,
         first_hire_date=body.first_hire_date,
+        workshop_id=workshop_id,
         user_id=body.user_id,
         created_by=current.id,
     )
@@ -131,23 +161,27 @@ def create_driver(db: DbSession, current: FleetUser, body: DriverCreate) -> Driv
         db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="手机号或绑定用户冲突")
     db.refresh(row)
-    return row
+    return driver_to_out(db, row)
 
 
 @router.get("/{driver_id}", response_model=DriverOut)
-def get_driver(db: DbSession, _: CurrentUser, driver_id: int) -> Driver:
+def get_driver(db: DbSession, _: CurrentUser, driver_id: int) -> DriverOut:
     row = db.get(Driver, driver_id)
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="驾驶员不存在")
-    return row
+    return driver_to_out(db, row)
 
 
 @router.patch("/{driver_id}", response_model=DriverOut)
-def update_driver(db: DbSession, _: FleetUser, driver_id: int, body: DriverUpdate) -> Driver:
+def update_driver(db: DbSession, _: FleetUser, driver_id: int, body: DriverUpdate) -> DriverOut:
     row = db.get(Driver, driver_id)
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="驾驶员不存在")
     data = body.model_dump(exclude_unset=True)
+    if "workshop_id" in data and data["workshop_id"] is not None:
+        ws = get_workshop_by_id(db, int(data["workshop_id"]))
+        if not ws:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="车间不存在")
     for k, v in data.items():
         if isinstance(v, str):
             v = v.strip()
@@ -158,7 +192,7 @@ def update_driver(db: DbSession, _: FleetUser, driver_id: int, body: DriverUpdat
         db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="手机号或绑定用户冲突")
     db.refresh(row)
-    return row
+    return driver_to_out(db, row)
 
 
 @router.delete("/{driver_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -25,6 +25,7 @@ from app.schemas.user_admin import (
     UserAdminUpdate,
 )
 from app.services.auth_service import PWD_REGEX
+from app.services.workshop_service import apply_workshop_to_user, get_workshop_by_id
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -87,6 +88,7 @@ def list_users(
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     q: Annotated[str | None, Query(max_length=64)] = None,
+    role: Annotated[str | None, Query(max_length=32, description="按账号分级精确筛选")] = None,
 ) -> UserAdminListOut:
     stmt = select(User)
     count_stmt = select(func.count()).select_from(User)
@@ -95,6 +97,10 @@ def list_users(
         cond = or_(User.username.ilike(like), User.display_name.ilike(like))
         stmt = stmt.where(cond)
         count_stmt = count_stmt.where(cond)
+    if role and role.strip():
+        role_key = role.strip()
+        stmt = stmt.where(User.role == role_key)
+        count_stmt = count_stmt.where(User.role == role_key)
     total = int(db.scalar(count_stmt) or 0)
     rows = list(db.scalars(stmt.order_by(User.id.asc()).offset(skip).limit(limit)).all())
     return UserAdminListOut(items=[UserAdminOut.model_validate(r) for r in rows], total=total)
@@ -121,8 +127,14 @@ def create_user(db: DbSession, current: AccountAdmin, body: UserAdminCreate) -> 
         password_hash=hash_password(body.password),
         display_name=body.display_name.strip(),
         role=body.role,
+        workshop_id=body.workshop_id,
         is_active=body.is_active,
     )
+    if body.workshop_id:
+        ws = get_workshop_by_id(db, body.workshop_id)
+        if not ws:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="车间不存在")
+        apply_workshop_to_user(db, u, ws.id)
     db.add(u)
     try:
         db.commit()
@@ -169,6 +181,15 @@ def update_user(db: DbSession, current: AccountAdmin, user_id: int, body: UserAd
         if row.username.lower() == "admin" and data["is_active"] is False:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不可禁用内置超级管理员账号")
         row.is_active = bool(data["is_active"])
+    if "workshop_id" in data:
+        wid = data["workshop_id"]
+        if wid is not None:
+            ws = get_workshop_by_id(db, int(wid))
+            if not ws:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="车间不存在")
+            apply_workshop_to_user(db, row, ws.id)
+        else:
+            row.workshop_id = None
 
     try:
         db.commit()

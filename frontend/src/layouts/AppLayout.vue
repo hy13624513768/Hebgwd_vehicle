@@ -426,10 +426,10 @@ function roleLabel(role: string) {
     workshop_director: '车间主任',
     workshop_admin: '车间管理员',
     vehicle_driver: '车辆驾驶员',
-    admin: '管理员(旧)',
-    fleet_manager: '车管(旧)',
-    driver: '驾驶员(旧)',
-    staff: '普通用户(旧)',
+    admin: '超级管理员',
+    fleet_manager: '段级管理员',
+    driver: '车辆驾驶员',
+    staff: '普通用户',
   }
   return m[role] || role
 }

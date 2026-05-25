@@ -15,6 +15,7 @@ class VehicleCreate(BaseModel):
     status: str = Field(default="active", max_length=16)
     remarks: str | None = None
     org_unit: str = Field(default="", max_length=128)
+    workshop_id: int | None = Field(default=None, description="所属车间主数据 ID")
     vehicle_class: str = Field(default="", max_length=64)
     vehicle_type_label: str = Field(default="", max_length=64)
     emission_std: str = Field(default="", max_length=32)
@@ -33,6 +34,7 @@ class VehicleUpdate(BaseModel):
     status: str | None = Field(default=None, max_length=16)
     remarks: str | None = None
     org_unit: str | None = Field(default=None, max_length=128)
+    workshop_id: int | None = Field(default=None, description="所属车间主数据 ID")
     vehicle_class: str | None = Field(default=None, max_length=64)
     vehicle_type_label: str | None = Field(default=None, max_length=64)
     emission_std: str | None = Field(default=None, max_length=32)
@@ -54,6 +56,7 @@ class VehicleOut(BaseModel):
     status: str
     remarks: str | None
     org_unit: str = ""
+    workshop_id: int | None = None
     vehicle_class: str = ""
     vehicle_type_label: str = ""
     history_plate: str = ""

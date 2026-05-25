@@ -223,3 +223,50 @@ def run_runtime_migrations() -> None:
             conn.execute(text("UPDATE sys_user SET role = 'section_admin' WHERE role = 'fleet_manager'"))
             conn.execute(text("UPDATE sys_user SET role = 'vehicle_driver' WHERE role = 'driver'"))
             conn.execute(text("UPDATE sys_user SET role = 'vehicle_driver' WHERE role = 'staff'"))
+
+    _migrate_workshop_master(insp)
+
+
+def _migrate_workshop_master(insp) -> None:
+    """车间主表 bus_workshop 及 workshop_id 外键列（兼容旧库）。"""
+    tables_fk: list[tuple[str, str]] = [
+        ("sys_user", "sys_user_workshop_id_fkey"),
+        ("bus_driver", "bus_driver_workshop_id_fkey"),
+        ("bus_vehicle", "bus_vehicle_workshop_id_fkey"),
+        ("bus_fuel_record", "bus_fuel_record_workshop_id_fkey"),
+        ("bus_fuel_balance", "bus_fuel_balance_workshop_id_fkey"),
+        ("bus_trip_request", "bus_trip_request_workshop_id_fkey"),
+    ]
+    for table, _ in tables_fk:
+        if not insp.has_table(table):
+            continue
+        cols = {c["name"] for c in insp.get_columns(table)}
+        if "workshop_id" not in cols:
+            with engine.begin() as conn:
+                try:
+                    conn.execute(
+                        text(f"ALTER TABLE {table} ADD COLUMN workshop_id INTEGER NULL")
+                    )
+                except ProgrammingError:
+                    pass
+        insp = inspect(engine)
+        fk_names = {fk.get("name") for fk in insp.get_foreign_keys(table)}
+        cname = f"{table}_workshop_id_fkey"
+        if cname not in fk_names and insp.has_table("bus_workshop"):
+            try:
+                with engine.begin() as conn:
+                    conn.execute(
+                        text(
+                            f"ALTER TABLE {table} ADD CONSTRAINT {cname} "
+                            "FOREIGN KEY (workshop_id) REFERENCES bus_workshop (id)"
+                        )
+                    )
+            except ProgrammingError:
+                pass
+        try:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(f"CREATE INDEX IF NOT EXISTS ix_{table}_workshop_id ON {table} (workshop_id)")
+                )
+        except ProgrammingError:
+            pass

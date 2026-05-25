@@ -11,6 +11,11 @@ from sqlalchemy.exc import IntegrityError
 from app.core.deps import CurrentUser, DbSession
 from app.core.rbac import FleetUser
 from app.models.fuel import FuelBalance, FuelCard, FuelRecord
+from app.services.workshop_service import (
+    apply_workshop_name_to_fuel_record,
+    list_active_workshop_names,
+    resolve_workshop_filter,
+)
 from app.schemas.fuel import (
     FuelBalancePage,
     FuelBalanceOut,
@@ -27,14 +32,7 @@ router = APIRouter(prefix="/fuel", tags=["fuel"])
 
 @router.get("/balance-workshops", response_model=list[str])
 def list_balance_workshops(db: DbSession, _: CurrentUser) -> list[str]:
-    rows = db.execute(
-        select(FuelBalance.workshop)
-        .where(FuelBalance.workshop != "")
-        .where(FuelBalance.workshop != "/")
-        .distinct()
-        .order_by(FuelBalance.workshop.asc())
-    ).all()
-    return [name.strip() for (name,) in rows if name and name.strip()]
+    return list_active_workshop_names(db)
 
 
 @router.get("/balances", response_model=FuelBalancePage)
@@ -52,7 +50,7 @@ def list_balances(
     sort_dir: Annotated[Literal["asc", "desc"], Query(description="排序方向")] = "asc",
 ) -> FuelBalancePage:
     base_conds: list = []
-    ws = (workshop or "").strip()
+    ws = resolve_workshop_filter(db, workshop)
     if ws:
         base_conds.append(FuelBalance.workshop == ws)
 
@@ -200,7 +198,7 @@ def list_records(
     card = (card_asn or "").strip()
     if card:
         conds.append(FuelRecord.card_asn == card)
-    ws = (workshop or "").strip()
+    ws = resolve_workshop_filter(db, workshop)
     if ws:
         conds.append(FuelRecord.workshop == ws)
     if date_from is not None:
@@ -229,6 +227,7 @@ def list_records(
 
 
 def _record_conditions(
+    db: DbSession,
     card_asn: str | None,
     workshop: str | None,
     date_from: date | None,
@@ -238,7 +237,7 @@ def _record_conditions(
     card = (card_asn or "").strip()
     if card:
         conds.append(FuelRecord.card_asn == card)
-    ws = (workshop or "").strip()
+    ws = resolve_workshop_filter(db, workshop)
     if ws:
         conds.append(FuelRecord.workshop == ws)
     if date_from is not None:
@@ -250,13 +249,7 @@ def _record_conditions(
 
 @router.get("/record-workshops", response_model=list[str])
 def list_record_workshops(db: DbSession, _: CurrentUser) -> list[str]:
-    rows = db.execute(
-        select(FuelRecord.workshop)
-        .where(FuelRecord.workshop != "")
-        .distinct()
-        .order_by(FuelRecord.workshop.asc())
-    ).all()
-    return [name.strip() for (name,) in rows if name and name.strip()]
+    return list_active_workshop_names(db)
 
 
 @router.get("/record-cards", response_model=list[str])
@@ -279,7 +272,7 @@ def export_records_xlsx(
     date_from: Annotated[date | None, Query(description="交易日期起（含）")] = None,
     date_to: Annotated[date | None, Query(description="交易日期止（含）")] = None,
 ) -> StreamingResponse:
-    conds = _record_conditions(card_asn, workshop, date_from, date_to)
+    conds = _record_conditions(db, card_asn, workshop, date_from, date_to)
     stmt = select(FuelRecord)
     if conds:
         stmt = stmt.where(and_(*conds))
@@ -330,9 +323,12 @@ def create_record(db: DbSession, _: FleetUser, body: FuelRecordCreate) -> FuelRe
         amount=body.amount,
         balance=body.balance,
         workshop=body.workshop.strip(),
+        workshop_id=body.workshop_id,
         org_name=body.org_name.strip(),
         gift_name=body.gift_name.strip(),
     )
+    if body.workshop_id is None:
+        apply_workshop_name_to_fuel_record(db, row, body.workshop)
     db.add(row)
     db.commit()
     db.refresh(row)

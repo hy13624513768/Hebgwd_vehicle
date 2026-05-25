@@ -23,7 +23,10 @@ class Vehicle(Base):
     status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)  # active/inactive/repairing
     remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    org_unit: Mapped[str] = mapped_column(String(128), default="", nullable=False)  # 使用单位
+    org_unit: Mapped[str] = mapped_column(String(128), default="", nullable=False)  # 使用单位（与车间主表 name 同步）
+    workshop_id: Mapped[int | None] = mapped_column(
+        ForeignKey("bus_workshop.id"), nullable=True, index=True
+    )
     vehicle_class: Mapped[str] = mapped_column(String(64), default="", nullable=False)  # 种类
     vehicle_type_label: Mapped[str] = mapped_column(String(64), default="", nullable=False)  # 车辆类型（Excel）
     history_plate: Mapped[str] = mapped_column(String(32), default="", nullable=False)

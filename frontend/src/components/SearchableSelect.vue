@@ -3,8 +3,9 @@
     <button
       type="button"
       class="searchable-select__trigger"
-      :class="triggerClass"
-      @click.stop="toggle"
+      :class="[triggerClass, { 'is-disabled': disabled }]"
+      :disabled="disabled"
+      @click.stop="onTriggerClick"
     >
       <span class="searchable-select__trigger-text">{{ displayLabel }}</span>
       <span class="searchable-select__caret" aria-hidden="true">▾</span>
@@ -66,16 +67,18 @@ const props = withDefaults(
     searchPlaceholder?: string
     /** 附加到触发按钮的 class，如 filter-control */
     triggerClass?: string
+    disabled?: boolean
   }>(),
   {
     allowEmpty: false,
     emptyLabel: '全部',
     searchPlaceholder: '输入关键字筛选…',
     triggerClass: '',
+    disabled: false,
   },
 )
 
-const emit = defineEmits<{ 'update:modelValue': [v: number] }>()
+const emit = defineEmits(['update:modelValue', 'denied'])
 
 const rootEl = ref<HTMLElement | null>(null)
 const searchInputRef = ref<HTMLInputElement | null>(null)
@@ -120,6 +123,14 @@ function pick(id: number) {
 function close() {
   open.value = false
   query.value = ''
+}
+
+function onTriggerClick() {
+  if (props.disabled) {
+    emit('denied')
+    return
+  }
+  toggle()
 }
 
 function toggle() {
@@ -180,8 +191,15 @@ onUnmounted(() => document.removeEventListener('pointerdown', onDocPointerDown, 
   -webkit-appearance: none;
 }
 
-.searchable-select__trigger:hover {
+.searchable-select__trigger:hover:not(:disabled) {
   border-color: var(--cl-border-warm, #d4c4b0);
+}
+
+.searchable-select__trigger.is-disabled,
+.searchable-select__trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+  background: var(--cl-warm-sand, #f5efe6);
 }
 
 .searchable-select__trigger:focus {
