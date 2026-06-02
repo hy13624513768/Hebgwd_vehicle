@@ -60,7 +60,13 @@ def create_vehicle(db: DbSession, current: FleetUser, body: VehicleCreate) -> Ve
         registered_at=body.registered_at,
         created_by=current.id,
     )
-    if body.workshop_id is None:
+    if body.workshop_id is not None:
+        ws = get_workshop_by_id(db, body.workshop_id)
+        if not ws:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="车间不存在")
+        row.workshop_id = ws.id
+        row.org_unit = ws.name
+    else:
         apply_workshop_name_to_vehicle(db, row, body.org_unit)
     db.add(row)
     try:
@@ -86,7 +92,7 @@ def update_vehicle(db: DbSession, _: FleetUser, vehicle_id: int, body: VehicleUp
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="车辆不存在")
     data = body.model_dump(exclude_unset=True)
-    if data.get("workshop_id"):
+    if "workshop_id" in data and data["workshop_id"] is not None:
         ws = get_workshop_by_id(db, int(data["workshop_id"]))
         if not ws:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="车间不存在")
@@ -97,6 +103,7 @@ def update_vehicle(db: DbSession, _: FleetUser, vehicle_id: int, body: VehicleUp
     elif "org_unit" in data and data["org_unit"] is not None:
         apply_workshop_name_to_vehicle(db, row, str(data["org_unit"]))
         data.pop("org_unit", None)
+        data.pop("workshop_id", None)
     for k, v in data.items():
         if isinstance(v, str):
             v = v.strip()

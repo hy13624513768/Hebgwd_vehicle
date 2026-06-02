@@ -3,8 +3,7 @@
     <header class="repair-records__head">
       <h1 class="repair-records__title">维修记录</h1>
       <p class="repair-records__desc muted">
-        登记送修信息。车牌来自<strong>车辆登记（bus_vehicle）</strong>；驾驶员自<strong>驾驶员库（bus_driver）</strong>检索。三类照片各限一张，便于后续对接维修单与结算凭证；结算单可预留
-        <strong>AI 表格/票面识别</strong>接口。
+        登记送修信息并上传结算单照片；保存后系统将<strong>自动调用 AI 识别</strong>结算单，结果流转至「维修保养」页按词条归类展示。
       </p>
     </header>
 
@@ -111,7 +110,7 @@
             :enable-video="false"
             :single-photo="true"
             :show-photo-download="false"
-            photo-hint="限一张：结算单、发票等。预留服务端 AI 识别表格/金额字段，当前仅本地预览。"
+            photo-hint="限一张：结算单、发票等。提交后将自动 AI 识别并归类到维修词条。"
           />
         </div>
       </div>
@@ -124,7 +123,7 @@
       </div>
 
       <p class="form-foot muted">
-        当前为前端演示，提交后不入库；后续可对接 <code>/api/v1/maintenance</code> 或专用维修上报接口。
+        提交后结算单会自动识别；可在「费用管理 → 维修保养」查看归类结果。
       </p>
     </form>
   </div>
@@ -133,6 +132,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 
+import { createRepairRecord } from '@/api/repairRecords'
 import { listDrivers } from '@/api/drivers'
 import { listVehicles } from '@/api/vehicles'
 import type { Driver, Vehicle } from '@/api/types'
@@ -231,39 +231,43 @@ async function onSubmit() {
     return
   }
 
-  const plate = vehicleOptions.value.find((o) => o.id === vehicleId.value)?.label ?? `#${vehicleId.value}`
   const duo = captureDuoRef.value?.getPhotoFile?.() ?? null
   const itemPhoto = captureRepairItemRef.value?.getPhotoFile?.() ?? null
   const itemVideo = captureRepairItemRef.value?.getVideoFile?.() ?? null
   const settle = captureSettlementRef.value?.getPhotoFile?.() ?? null
 
+  if (!settle) {
+    formMsg.value = { kind: 'err', text: '请上传结算单照片（AI 识别必需）。' }
+    return
+  }
+
   submitting.value = true
   try {
-    await new Promise((r) => setTimeout(r, 400))
-    console.info('[repair-record demo]', {
-      vehicleId: vehicleId.value,
-      plate,
-      repairOrderNo: order,
-      driverId: driverId.value,
-      driverLabel: driverDisplayName(),
-      photos: {
-        duo: duo ? { name: duo.name, size: duo.size } : null,
-        repairItemPhoto: itemPhoto ? { name: itemPhoto.name, size: itemPhoto.size } : null,
-        repairItemVideo: itemVideo ? { name: itemVideo.name, size: itemVideo.size } : null,
-        settlement: settle ? { name: settle.name, size: settle.size } : null,
-      },
-    })
-    const parts = [
-      `${plate}`,
-      `单号 ${order}`,
-      driverDisplayName(),
-      duo ? '已附合影' : '未附合影',
-      itemPhoto || itemVideo
-        ? `维修项目：${itemPhoto ? '有照片' : '无照片'}${itemVideo ? ' · 有视频' : ''}`
-        : '未附维修项目影像',
-      settle ? '已附结算单照' : '未附结算单照',
-    ]
-    formMsg.value = { kind: 'ok', text: `已校验通过（演示）：${parts.join(' · ')}` }
+    const fd = new FormData()
+    fd.append('vehicle_id', String(vehicleId.value))
+    fd.append('repair_order_no', order)
+    fd.append('driver_id', String(driverId.value))
+    fd.append('auto_recognize', 'true')
+    if (duo) fd.append('photo_duo', duo)
+    if (itemPhoto) fd.append('photo_item', itemPhoto)
+    if (itemVideo) fd.append('photo_item_video', itemVideo)
+    if (settle) fd.append('photo_settlement', settle)
+
+    const record = await createRepairRecord(fd)
+    const st = record.settlement
+    const lines = st?.lines?.length ?? 0
+    const status = st?.recognition_status ?? record.status
+    formMsg.value = {
+      kind: status === 'done' ? 'ok' : 'err',
+      text:
+        status === 'done'
+          ? `提交成功！已识别 ${lines} 项维修明细，可在「维修保养」页查看归类。`
+          : `已保存记录，但识别${status === 'failed' ? '失败' : '未完成'}：${st?.recognition_error || record.status}`,
+    }
+    if (status === 'done') resetForm()
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { detail?: string } } }
+    formMsg.value = { kind: 'err', text: err.response?.data?.detail || '提交失败，请稍后重试。' }
   } finally {
     submitting.value = false
   }

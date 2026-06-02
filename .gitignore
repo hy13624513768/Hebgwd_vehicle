@@ -1,5 +1,6 @@
 .pg_test_data/
 backend/exports/
+backend/uploads/
 
 # 密钥与本地环境（示例文件见 .env.example，可提交）
 backend/.env*
@@ -29,6 +30,10 @@ Thumbs.db
 
 # 脚本临时输出（可能含本地路径或数据片段）
 backend/scripts/_excel_inspect_out.txt
+backend/=*
+
+# 仓库根目录数据文件（勿提交业务 Excel）
+/*.xlsx
 
 # 推送 ACR 用的本地变量（勿提交）
 .env.acr

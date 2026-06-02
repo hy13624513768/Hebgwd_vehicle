@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     """
     demo_seeding_enabled: bool = True
 
+    zhipu_api_key: str = ""
+    zhipu_model: str = "glm-4.6v"
+    zhipu_api_base: str = "https://open.bigmodel.cn/api/paas/v4"
+
+    upload_dir: str = "uploads"
+    repair_upload_subdir: str = "repair"
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

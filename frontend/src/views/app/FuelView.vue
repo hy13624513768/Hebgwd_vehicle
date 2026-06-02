@@ -1,162 +1,5 @@
 <template>
   <div class="stack fuel-view">
-    <section class="panel rec-panel">
-      <div class="hd">
-        <h2>加油流水</h2>
-      </div>
-      <div v-if="msg" class="msg">{{ msg }}</div>
-      <div class="rec-toolbar">
-        <div class="rec-filters">
-          <label class="inline-label">卡号</label>
-          <SearchableSelect
-            v-model="recFilter.card_asn_id"
-            :options="recordCardOptions"
-            allow-empty
-            empty-label="全部"
-            search-placeholder="输入卡号关键字…"
-          />
-          <label class="inline-label">车间</label>
-          <SearchableSelect
-            v-model="recFilter.workshop_id"
-            :options="recordWorkshopOptions"
-            allow-empty
-            empty-label="全部"
-            search-placeholder="输入车间关键字…"
-          />
-          <label class="inline-label">日期起</label>
-          <div class="filter-field filter-field--date">
-            <input v-model="recFilter.date_from" type="date" class="filter-control filter-date" />
-          </div>
-          <label class="inline-label">日期止</label>
-          <div class="filter-field filter-field--date">
-            <input v-model="recFilter.date_to" type="date" class="filter-control filter-date" />
-          </div>
-        </div>
-        <div class="rec-actions">
-          <button type="button" class="primary rec-query" :disabled="loadingRecords" @click="searchRecords">
-            {{ loadingRecords ? '查询中…' : '查询' }}
-          </button>
-          <button type="button" class="ghost rec-query" :disabled="exportingRecords" @click="exportRecords">
-            {{ exportingRecords ? '导出中…' : '导出Excel' }}
-          </button>
-        </div>
-      </div>
-      <table class="tbl tbl-records tbl--desktop">
-        <thead>
-          <tr>
-            <th>序号</th>
-            <th>油卡</th>
-            <th>车辆</th>
-            <th>
-              <button type="button" class="th-sort-btn" @click="toggleRecordSort('workshop')">
-                车间{{ recordSortMark('workshop') }}
-              </button>
-            </th>
-            <th>
-              <button type="button" class="th-sort-btn" @click="toggleRecordSort('occur_time')">
-                日期{{ recordSortMark('occur_time') }}
-              </button>
-            </th>
-            <th>升数</th>
-            <th>单价</th>
-            <th>金额</th>
-            <th class="col-station">站点</th>
-          </tr>
-        </thead>
-        <tbody v-if="!recordsSearched">
-          <tr>
-            <td colspan="9" class="hint">请设置筛选条件（可选）后点击「查询」加载流水，默认按时间倒序分页展示。</td>
-          </tr>
-        </tbody>
-        <tbody v-else-if="loadingRecords">
-          <tr>
-            <td colspan="9" class="hint">加载中…</td>
-          </tr>
-        </tbody>
-        <tbody v-else-if="!records.length">
-          <tr>
-            <td colspan="9" class="hint">当前条件下没有记录。</td>
-          </tr>
-        </tbody>
-        <tbody v-else>
-          <tr v-for="(r, idx) in records" :key="r.id">
-            <td>{{ displayRecordSeq(idx) }}</td>
-            <td>{{ r.card_asn }}</td>
-            <td>{{ r.car_no || '—' }}</td>
-            <td>{{ r.workshop || '—' }}</td>
-            <td>{{ formatOccurTime(r.occur_time) }}</td>
-            <td>{{ r.volumn }}</td>
-            <td>{{ unitPriceOf(r) }}</td>
-            <td>{{ r.amount }}</td>
-            <td class="col-station">{{ r.org_name || '—' }}</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <div class="rec-mobile" aria-live="polite">
-        <p v-if="!recordsSearched && !loadingRecords" class="hint rec-mobile__hint">
-          请设置筛选条件（可选）后点击「查询」加载流水，默认按时间倒序分页展示。
-        </p>
-        <p v-else-if="loadingRecords" class="hint rec-mobile__hint">加载中…</p>
-        <p v-else-if="!records.length" class="hint rec-mobile__hint">当前条件下没有记录。</p>
-        <ul v-else class="fuel-rec-cards" aria-label="加油流水列表">
-          <li v-for="(r, idx) in records" :key="`mob-${r.id}`" class="fuel-rec-card">
-            <div class="fuel-rec-card__top">
-              <span class="fuel-rec-card__id">序号 {{ displayRecordSeq(idx) }}</span>
-              <span class="fuel-rec-card__date">{{ formatOccurTime(r.occur_time) }}</span>
-            </div>
-            <div class="fuel-rec-card__line">
-              <span class="fuel-rec-card__k">油卡</span>
-              <span class="fuel-rec-card__v">{{ r.card_asn }}</span>
-            </div>
-            <div class="fuel-rec-card__line">
-              <span class="fuel-rec-card__k">车辆</span>
-              <span class="fuel-rec-card__v">{{ r.car_no || '—' }}</span>
-            </div>
-            <div class="fuel-rec-card__line">
-              <span class="fuel-rec-card__k">车间</span>
-              <span class="fuel-rec-card__v">{{ r.workshop || '—' }}</span>
-            </div>
-            <div class="fuel-rec-card__grid">
-              <div class="fuel-rec-card__stat">
-                <span class="fuel-rec-card__sk">升数</span>
-                <span class="fuel-rec-card__sv">{{ r.volumn }}</span>
-              </div>
-              <div class="fuel-rec-card__stat">
-                <span class="fuel-rec-card__sk">单价</span>
-                <span class="fuel-rec-card__sv">{{ unitPriceOf(r) }}</span>
-              </div>
-              <div class="fuel-rec-card__stat fuel-rec-card__stat--wide">
-                <span class="fuel-rec-card__sk">金额</span>
-                <span class="fuel-rec-card__sv">{{ r.amount }}</span>
-              </div>
-            </div>
-            <div class="fuel-rec-card__station">
-              <span class="fuel-rec-card__sk">站点</span>
-              <p class="fuel-rec-card__station-text">{{ r.org_name || '—' }}</p>
-            </div>
-          </li>
-        </ul>
-      </div>
-
-      <div v-if="recordsSearched && !loadingRecords" class="rec-pager">
-        <span class="pager-meta">共 {{ recordsTotal }} 条</span>
-        <label class="inline-label">每页</label>
-        <select v-model.number="recFilter.page_size" class="filter-control pager-size" @change="onRecordPageSizeChange">
-          <option :value="10">10</option>
-          <option :value="20">20</option>
-          <option :value="50">50</option>
-          <option :value="100">100</option>
-        </select>
-        <span class="pager-meta">条</span>
-        <button type="button" class="ghost pager-btn" :disabled="recFilter.page <= 1" @click="prevRecordPage">上一页</button>
-        <span class="pager-meta">第 {{ recFilter.page }} / {{ totalRecordPages }} 页</span>
-        <button type="button" class="ghost pager-btn" :disabled="recFilter.page >= totalRecordPages" @click="nextRecordPage">
-          下一页
-        </button>
-      </div>
-    </section>
-
     <section class="panel balance-panel">
       <div class="hd hd--split">
         <h2>油卡余额（卡内剩余金额）</h2>
@@ -187,11 +30,22 @@
           >
             合计500以上：{{ balanceCountHigh }}
           </button>
-          <button type="button" class="ghost" :disabled="loadingBalances" @click="reload">
-            {{ loadingBalances ? '刷新中…' : '刷新余额' }}
-          </button>
         </div>
       </div>
+
+      <div class="balance-sync-row">
+        <button
+          type="button"
+          class="primary balance-sync-btn"
+          :disabled="syncingBalances || loadingBalances"
+          @click="syncBalancesFromPlatform"
+        >
+          {{ syncingBalances ? '正在同步…' : '同步最新余额' }}
+        </button>
+        <p class="balance-sync-hint">从中国石油油卡平台拉取最新余额并刷新本页</p>
+      </div>
+      <div v-if="syncStatus" class="sync-status">{{ syncStatus }}</div>
+      <div v-if="msg" class="msg">{{ msg }}</div>
 
       <section class="balance-overview" aria-label="余额统计总览">
         <article class="balance-kpi">
@@ -336,19 +190,14 @@ import { computed, onMounted, reactive, ref } from 'vue'
 
 import * as fuelApi from '@/api/fuel'
 import SearchableSelect, { type SearchableOption } from '@/components/SearchableSelect.vue'
-import type { FuelBalance, FuelRecord } from '@/api/fuel'
+import type { FuelBalance } from '@/api/fuel'
 
-const records = ref<FuelRecord[]>([])
 const balances = ref<FuelBalance[]>([])
 const balanceWorkshops = ref<string[]>([])
-const recordWorkshops = ref<string[]>([])
-const recordCards = ref<string[]>([])
 const msg = ref('')
-const loadingRecords = ref(false)
-const exportingRecords = ref(false)
+const syncStatus = ref('')
+const syncingBalances = ref(false)
 const loadingBalances = ref(false)
-const recordsSearched = ref(false)
-const recordsTotal = ref(0)
 const balancesTotal = ref(0)
 const balanceTotalAmount = ref('0')
 const balanceCountZero = ref(0)
@@ -360,51 +209,20 @@ const balanceSumHigh = ref('0')
 const balancePage = ref(1)
 const BALANCE_PAGE_SIZE = 15
 
-const recFilter = reactive({
-  card_asn_id: 0,
-  workshop_id: 0,
-  date_from: '',
-  date_to: '',
-  page: 1,
-  page_size: 20,
-})
-const recSort = reactive({
-  by: 'occur_time' as 'occur_time' | 'workshop' | 'amount' | 'volumn' | 'car_no' | 'card_asn',
-  dir: 'desc' as 'asc' | 'desc',
-})
 const balanceFilter = reactive({
   workshop_id: 0,
   amount_bucket: '' as '' | 'zero' | 'low' | 'high',
 })
 const balanceSort = reactive({
-  by: 'workshop' as 'card_no' | 'workshop' | 'vehicle_no' | 'amount' | 'reserve_fund' | 'total',
+  by: 'card_no' as 'card_no' | 'workshop' | 'vehicle_no' | 'amount' | 'reserve_fund' | 'total',
   dir: 'asc' as 'asc' | 'desc',
 })
 
-const totalRecordPages = computed(() =>
-  Math.max(1, Math.ceil(recordsTotal.value / recFilter.page_size) || 1),
-)
 const balanceTotalPages = computed(() =>
   Math.max(1, Math.ceil(balancesTotal.value / BALANCE_PAGE_SIZE) || 1),
 )
 const averageBalanceAmount = computed(() =>
   balancesTotal.value ? Number(balanceTotalAmount.value || 0) / balancesTotal.value : 0,
-)
-
-const recordWorkshopOptions = computed<SearchableOption[]>(() =>
-  recordWorkshops.value.map((unit, idx) => ({
-    id: idx + 1,
-    label: unit,
-    keywords: unit,
-  })),
-)
-
-const recordCardOptions = computed<SearchableOption[]>(() =>
-  recordCards.value.map((card, idx) => ({
-    id: idx + 1,
-    label: card,
-    keywords: card,
-  })),
 )
 
 const balanceWorkshopOptions = computed<SearchableOption[]>(() =>
@@ -415,71 +233,68 @@ const balanceWorkshopOptions = computed<SearchableOption[]>(() =>
   })),
 )
 
-function selectedRecordWorkshopName(): string {
-  if (!recFilter.workshop_id) return ''
-  return recordWorkshopOptions.value.find((x) => x.id === recFilter.workshop_id)?.label ?? ''
-}
-
-function selectedRecordCardNo(): string {
-  if (!recFilter.card_asn_id) return ''
-  return recordCardOptions.value.find((x) => x.id === recFilter.card_asn_id)?.label ?? ''
-}
-
 function selectedBalanceWorkshopName(): string {
   if (!balanceFilter.workshop_id) return ''
   return balanceWorkshopOptions.value.find((x) => x.id === balanceFilter.workshop_id)?.label ?? ''
 }
 
-function formatOccurTime(raw: string) {
-  if (!raw) return '—'
-  const d = new Date(raw)
-  if (Number.isNaN(d.getTime())) return raw
-  return d.toLocaleString('zh-CN', { hour12: false })
+function monthStartIso() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
 }
 
-function unitPriceOf(r: FuelRecord) {
-  const vol = Number(r.volumn || 0)
-  const amount = Number(r.amount || 0)
-  if (vol <= 0) return '0.00'
-  return (amount / vol).toFixed(2)
+function todayIso() {
+  return new Date().toISOString().slice(0, 10)
 }
 
-function displayRecordSeq(index: number) {
-  return (recFilter.page - 1) * recFilter.page_size + index + 1
-}
-
-function toggleRecordSort(by: 'occur_time' | 'workshop' | 'amount' | 'volumn' | 'car_no' | 'card_asn') {
-  if (recSort.by === by) {
-    recSort.dir = recSort.dir === 'asc' ? 'desc' : 'asc'
-  } else {
-    recSort.by = by
-    recSort.dir = 'asc'
+async function syncBalancesFromPlatform() {
+  balancePage.value = 1
+  syncingBalances.value = true
+  loadingBalances.value = true
+  msg.value = ''
+  syncStatus.value = '准备连接中国石油油卡平台…'
+  try {
+    await fuelApi.syncFuelFromPlatform(
+      {
+        date_from: monthStartIso(),
+        date_to: todayIso(),
+      },
+      (message) => {
+        syncStatus.value = message
+      },
+    )
+  } catch (e) {
+    msg.value = e instanceof Error ? e.message : '同步中国石油油卡数据失败'
+    syncStatus.value = ''
+    loadingBalances.value = false
+    syncingBalances.value = false
+    return
+  } finally {
+    syncingBalances.value = false
   }
-  recFilter.page = 1
-  void fetchRecordsPage()
-}
 
-function recordSortMark(by: 'occur_time' | 'workshop' | 'amount' | 'volumn' | 'car_no' | 'card_asn') {
-  if (recSort.by !== by) return ''
-  return recSort.dir === 'asc' ? ' ↑' : ' ↓'
+  syncStatus.value = '同步完成，正在刷新余额…'
+  try {
+    balanceWorkshops.value = await fuelApi.listFuelBalanceWorkshops()
+    await fetchBalancePage()
+    syncStatus.value = ''
+  } catch {
+    msg.value = '数据已同步，但刷新余额失败，请稍后重试'
+    syncStatus.value = ''
+  } finally {
+    loadingBalances.value = false
+  }
 }
 
 async function reload() {
   msg.value = ''
   loadingBalances.value = true
   try {
-    const [bws, rws, cards] = await Promise.all([
-      fuelApi.listFuelBalanceWorkshops(),
-      fuelApi.listFuelRecordWorkshops(),
-      fuelApi.listFuelRecordCards(),
-    ])
-    balanceWorkshops.value = bws
-    recordWorkshops.value = rws
-    recordCards.value = cards
+    balanceWorkshops.value = await fuelApi.listFuelBalanceWorkshops()
     if (balancePage.value > balanceTotalPages.value) balancePage.value = 1
     await fetchBalancePage()
   } catch {
-    msg.value = '加载油卡、车辆与余额数据失败'
+    msg.value = '加载油卡余额失败'
   } finally {
     loadingBalances.value = false
   }
@@ -577,87 +392,9 @@ function nextBalancePage() {
   void fetchBalancePage()
 }
 
-function buildRecordQueryParams(): fuelApi.ListFuelRecordsParams {
-  const params: fuelApi.ListFuelRecordsParams = {
-    page: recFilter.page,
-    page_size: recFilter.page_size,
-    sort_by: recSort.by,
-    sort_dir: recSort.dir,
-  }
-  const cardAsn = selectedRecordCardNo()
-  if (cardAsn) params.card_asn = cardAsn
-  const workshop = selectedRecordWorkshopName()
-  if (workshop) params.workshop = workshop
-  if (recFilter.date_from) params.date_from = recFilter.date_from
-  if (recFilter.date_to) params.date_to = recFilter.date_to
-  return params
-}
-
-async function fetchRecordsPage() {
-  loadingRecords.value = true
-  msg.value = ''
-  try {
-    const res = await fuelApi.listFuelRecordsPaged(buildRecordQueryParams())
-    const maxPage = Math.max(1, Math.ceil(res.total / recFilter.page_size) || 1)
-    if (res.total > 0 && recFilter.page > maxPage) {
-      recFilter.page = maxPage
-      const res2 = await fuelApi.listFuelRecordsPaged(buildRecordQueryParams())
-      records.value = res2.items
-      recordsTotal.value = res2.total
-    } else {
-      records.value = res.items
-      recordsTotal.value = res.total
-    }
-    recordsSearched.value = true
-  } catch {
-    msg.value = '加载加油流水失败'
-  } finally {
-    loadingRecords.value = false
-  }
-}
-
-function searchRecords() {
-  recFilter.page = 1
-  void fetchRecordsPage()
-}
-
-async function exportRecords() {
-  exportingRecords.value = true
-  try {
-    const blob = await fuelApi.exportFuelRecordsExcel(buildRecordQueryParams())
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `fuel_records_${new Date().toISOString().slice(0, 10)}.xlsx`
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
-  } catch {
-    msg.value = '导出加油流水失败'
-  } finally {
-    exportingRecords.value = false
-  }
-}
-
-function onRecordPageSizeChange() {
-  recFilter.page = 1
-  if (recordsSearched.value) void fetchRecordsPage()
-}
-
-function prevRecordPage() {
-  if (recFilter.page <= 1) return
-  recFilter.page -= 1
-  void fetchRecordsPage()
-}
-
-function nextRecordPage() {
-  if (recFilter.page >= totalRecordPages.value) return
-  recFilter.page += 1
-  void fetchRecordsPage()
-}
-
-onMounted(reload)
+onMounted(() => {
+  void reload()
+})
 </script>
 
 <style scoped>
@@ -680,14 +417,6 @@ onMounted(reload)
   min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
-}
-
-.balance-panel {
-  order: 1;
-}
-
-.rec-panel {
-  order: 2;
 }
 
 .balance-toolbar {
@@ -880,6 +609,48 @@ onMounted(reload)
   font-size: 12px;
 }
 
+.balance-sync-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  margin: 4px 0 12px;
+}
+
+.balance-sync-btn {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  box-shadow:
+    rgba(201, 100, 66, 0.28) 0 6px 18px -6px,
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.balance-sync-btn:disabled {
+  opacity: 0.72;
+  cursor: not-allowed;
+}
+
+.balance-sync-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--cl-olive);
+  line-height: 1.45;
+}
+
+.sync-status {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(201, 100, 66, 0.35);
+  background: rgba(201, 100, 66, 0.1);
+  color: #8a4b22;
+  font-size: 13px;
+}
+
 .msg {
   margin-bottom: 10px;
   padding: 10px 12px;
@@ -1005,86 +776,11 @@ th {
   flex-shrink: 0;
 }
 
-.rec-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-}
-
 .hint {
   padding: 16px 10px;
   text-align: center;
   color: var(--cl-olive);
   font-size: 13px;
-}
-
-.tbl-records .col-station {
-  max-width: 300px;
-  white-space: normal;
-  word-break: break-word;
-  line-height: 1.4;
-  vertical-align: top;
-}
-
-.tbl-records {
-  table-layout: fixed;
-  border: 1px solid var(--cl-border-cream);
-  border-radius: 12px;
-  overflow: hidden;
-  background: var(--cl-white);
-}
-
-.tbl-records th:nth-child(1),
-.tbl-records td:nth-child(1) {
-  width: 7%;
-  text-align: center;
-}
-
-.tbl-records th:nth-child(2),
-.tbl-records td:nth-child(2) {
-  width: 16%;
-}
-
-.tbl-records th:nth-child(3),
-.tbl-records td:nth-child(3) {
-  width: 12%;
-}
-
-.tbl-records th:nth-child(4),
-.tbl-records td:nth-child(4) {
-  width: 11%;
-}
-
-.tbl-records th:nth-child(5),
-.tbl-records td:nth-child(5),
-.tbl-records th:nth-child(6),
-.tbl-records td:nth-child(6),
-.tbl-records th:nth-child(7),
-.tbl-records td:nth-child(7) {
-  width: 10%;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-.tbl-records th:nth-child(8),
-.tbl-records td:nth-child(8) {
-  width: 9%;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-.tbl-records th:nth-child(9),
-.tbl-records td:nth-child(9) {
-  width: 26%;
-}
-
-.tbl-records tbody tr:nth-child(even) td {
-  background: #fcfaf6;
-}
-
-.tbl-records tbody tr:hover td {
-  background: #f6f0e5;
 }
 
 .tbl-balances {
@@ -1242,118 +938,6 @@ th {
   display: table;
 }
 
-.rec-mobile {
-  display: none;
-}
-
-.fuel-rec-cards {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.fuel-rec-card {
-  border: 1px solid var(--cl-border-cream);
-  border-radius: 14px;
-  background: var(--cl-ivory);
-  padding: 14px;
-  box-shadow: rgba(0, 0, 0, 0.04) 0 4px 16px;
-}
-
-.fuel-rec-card__top {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.fuel-rec-card__id {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--cl-olive);
-}
-
-.fuel-rec-card__date {
-  font-size: 13px;
-  color: var(--cl-charcoal);
-  font-weight: 600;
-}
-
-.fuel-rec-card__line {
-  display: grid;
-  grid-template-columns: 44px 1fr;
-  gap: 8px 10px;
-  align-items: baseline;
-  font-size: 13px;
-  margin-bottom: 6px;
-}
-
-.fuel-rec-card__k {
-  color: var(--cl-olive);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.fuel-rec-card__v {
-  color: var(--cl-near-black);
-  font-weight: 800;
-  word-break: break-all;
-}
-
-.fuel-rec-card__grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px 12px;
-  margin: 12px 0;
-  padding-top: 10px;
-  border-top: 1px solid var(--cl-border-cream);
-}
-
-.fuel-rec-card__stat {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.fuel-rec-card__stat--wide {
-  grid-column: 1 / -1;
-}
-
-.fuel-rec-card__sk {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--cl-olive);
-  text-transform: none;
-}
-
-.fuel-rec-card__sv {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--cl-near-black);
-}
-
-.fuel-rec-card__station {
-  padding-top: 10px;
-  border-top: 1px solid var(--cl-border-cream);
-}
-
-.fuel-rec-card__station .fuel-rec-card__sk {
-  display: block;
-  margin-bottom: 6px;
-}
-
-.fuel-rec-card__station-text {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.45;
-  color: var(--cl-charcoal);
-  word-break: break-word;
-}
-
 .rec-pager {
   display: flex;
   flex-wrap: wrap;
@@ -1486,26 +1070,12 @@ th {
     min-height: 44px;
     font-size: 15px;
     font-weight: 600;
-  }
-
-  .rec-actions {
-    width: 100%;
-    margin-left: 0;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-  }
-
-  .rec-actions .rec-query {
     width: 100%;
   }
 
-  .tbl--desktop {
-    display: none;
-  }
-
-  .rec-mobile {
-    display: block;
+  .balance-sync-btn {
+    min-height: 48px;
+    font-size: 16px;
   }
 
   .balance-mobile {
@@ -1513,10 +1083,6 @@ th {
   }
 
   .balance-mobile__hint {
-    margin: 0 0 8px;
-  }
-
-  .rec-mobile__hint {
     margin: 0 0 8px;
   }
 

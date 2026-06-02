@@ -347,7 +347,13 @@
         <input v-model.trim="form.plate_number" />
 
         <label>使用单位</label>
-        <input v-model.trim="form.org_unit" />
+        <SearchableSelect
+          v-model="formWorkshopId"
+          :options="workshopFormOptions"
+          allow-empty
+          empty-label="请选择使用单位"
+          search-placeholder="搜索车间名称…"
+        />
 
         <label>种类</label>
         <input v-model.trim="form.vehicle_class" />
@@ -406,7 +412,9 @@ import axios from 'axios'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 
 import * as api from '@/api/vehicles'
+import { fetchWorkshops, type Workshop } from '@/api/workshops'
 import AppModal from '@/components/AppModal.vue'
+import SearchableSelect, { type SearchableOption } from '@/components/SearchableSelect.vue'
 import { usePermissions } from '@/composables/usePermissions'
 import type { Vehicle } from '@/api/types'
 
@@ -480,10 +488,19 @@ function onOrgUnitDocPointerDown(e: MouseEvent) {
 const modalOpen = ref(false)
 const modalTitle = ref('新增车辆')
 const editingId = ref<number | null>(null)
+const workshopsMaster = ref<Workshop[]>([])
+const formWorkshopId = ref(0)
+
+const workshopFormOptions = computed<SearchableOption[]>(() =>
+  workshopsMaster.value.map((w) => ({
+    id: w.id,
+    label: w.name,
+    keywords: w.name,
+  })),
+)
 
 const form = reactive({
   plate_number: '',
-  org_unit: '',
   vehicle_class: '',
   vehicle_type_label: '',
   brand: '',
@@ -1001,7 +1018,7 @@ function toDateInputValue(iso: string | null | undefined) {
 
 function resetForm() {
   form.plate_number = ''
-  form.org_unit = ''
+  formWorkshopId.value = 0
   form.vehicle_class = ''
   form.vehicle_type_label = ''
   form.brand = ''
@@ -1024,11 +1041,22 @@ function openCreate() {
   modalOpen.value = true
 }
 
+function resolveFormWorkshopId(v: Vehicle): number {
+  if (v.workshop_id) return v.workshop_id
+  const name = (v.org_unit ?? '').trim()
+  if (!name) return 0
+  return workshopsMaster.value.find((w) => w.name === name)?.id ?? 0
+}
+
+function syncFormWorkshopId(): number | null {
+  return formWorkshopId.value > 0 ? formWorkshopId.value : null
+}
+
 function openEdit(v: Vehicle) {
   editingId.value = v.id
   modalTitle.value = '编辑车辆'
   form.plate_number = v.plate_number
-  form.org_unit = v.org_unit || ''
+  formWorkshopId.value = resolveFormWorkshopId(v)
   form.vehicle_class = v.vehicle_class || ''
   form.vehicle_type_label = v.vehicle_type_label || ''
   form.brand = v.brand
@@ -1050,9 +1078,15 @@ async function save() {
   msg.value = ''
   try {
     const reg = form.registered_at.trim()
+    const workshopId = syncFormWorkshopId()
+    if (!workshopId) {
+      msg.value = '请选择使用单位'
+      saving.value = false
+      return
+    }
     const payload: Record<string, unknown> = {
       plate_number: form.plate_number,
-      org_unit: form.org_unit,
+      workshop_id: workshopId,
       vehicle_class: form.vehicle_class,
       vehicle_type_label: form.vehicle_type_label,
       brand: form.brand,
@@ -1070,7 +1104,7 @@ async function save() {
     if (editingId.value) {
       await api.updateVehicle(editingId.value, {
         plate_number: form.plate_number,
-        org_unit: form.org_unit,
+        workshop_id: workshopId,
         vehicle_class: form.vehicle_class,
         vehicle_type_label: form.vehicle_type_label,
         brand: form.brand,
@@ -1108,8 +1142,13 @@ async function onDelete(v: Vehicle) {
   }
 }
 
-onMounted(() => {
-  reload()
+onMounted(async () => {
+  try {
+    workshopsMaster.value = await fetchWorkshops()
+  } catch {
+    msg.value = '加载车间列表失败'
+  }
+  await reload()
   document.addEventListener('pointerdown', onOrgUnitDocPointerDown, true)
 })
 onUnmounted(() => {

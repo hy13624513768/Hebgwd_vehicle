@@ -7,6 +7,7 @@ from app.core.roles import WORKSHOP_ADMIN, WORKSHOP_DIRECTOR
 from app.data.workshop_canonical import (
     CANONICAL_WORKSHOP_NAMES,
     CANONICAL_SET,
+    WORKSHOP_SORT_ORDERS,
     resolve_canonical_workshop_name,
 )
 from app.models.driver import Driver
@@ -55,7 +56,7 @@ def get_or_create_workshop(db: Session, name: str) -> Workshop | None:
         return existing
     row = Workshop(
         name=canon,
-        sort_order=CANONICAL_WORKSHOP_NAMES.index(canon),
+        sort_order=WORKSHOP_SORT_ORDERS.get(canon, 0),
         is_active=True,
     )
     db.add(row)
@@ -70,25 +71,21 @@ def workshop_admin_account_name(workshop: str) -> str:
 
 def ensure_canonical_workshop_master(db: Session) -> int:
     """
-    将 bus_workshop 重置为 22 个标准车间，并把各业务表字符串与 workshop_id 全部对齐。
+    将 bus_workshop 重置为 23 个标准车间，并把各业务表字符串与 workshop_id 全部对齐。
     """
     id_by_name: dict[str, int] = {}
-    for idx, name in enumerate(CANONICAL_WORKSHOP_NAMES):
+    for name in CANONICAL_WORKSHOP_NAMES:
         row = db.scalar(select(Workshop).where(Workshop.name == name))
+        sort_order = WORKSHOP_SORT_ORDERS.get(name, 0)
         if row:
-            row.sort_order = idx
+            row.sort_order = sort_order
             row.is_active = True
             row.name = name
         else:
-            row = Workshop(name=name, sort_order=idx, is_active=True)
+            row = Workshop(name=name, sort_order=sort_order, is_active=True)
             db.add(row)
             db.flush()
         id_by_name[name] = row.id
-
-    # 停用不在总表中的旧车间行
-    for row in db.scalars(select(Workshop)).all():
-        if row.name not in CANONICAL_SET:
-            row.is_active = False
 
     def bind(canonical: str) -> Workshop:
         ws = get_or_create_workshop(db, canonical)
@@ -145,6 +142,14 @@ def ensure_canonical_workshop_master(db: Session) -> int:
     for u in db.scalars(select(User).order_by(User.id.asc())).all():
         _link_user_to_workshop(db, u, id_by_name)
         _maybe_rename_workshop_admin_username(db, u, id_by_name, claimed_usernames)
+
+    redundant_ids = [
+        row.id
+        for row in db.scalars(select(Workshop)).all()
+        if row.name not in CANONICAL_SET
+    ]
+    if redundant_ids:
+        db.execute(delete(Workshop).where(Workshop.id.in_(redundant_ids)))
 
     db.commit()
     return len(CANONICAL_WORKSHOP_NAMES)

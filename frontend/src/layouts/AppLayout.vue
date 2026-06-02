@@ -209,6 +209,7 @@ function isGroup(p: NavPiece): p is NavGroupDef {
 const navSource: NavPiece[] = [
   { to: '/app/dashboard', label: '工作台', icon: 'dashboard' },
   { to: '/app/location-navigation', label: '段内导航', icon: 'location' },
+  { to: '/app/fuel', label: '油卡余额', icon: 'fuel' },
   { to: '/app/occupancy-query', label: '车辆调度', icon: 'reports' },
   { to: '/app/ai-data-analysis', label: 'AI数据分析', icon: 'aiAnalysis', need: 'reports' },
   { to: '/app/ai-data-learning', label: 'AI数据学习', icon: 'aiLearning', need: 'reports' },
@@ -239,7 +240,7 @@ const navSource: NavPiece[] = [
     label: '费用管理',
     icon: 'expenses',
     children: [
-      { to: '/app/fuel', label: '油卡使用', icon: 'fuel' },
+      { to: '/app/fuel-bills', label: '油卡账单', icon: 'fuel' },
       { to: '/app/maintenance', label: '维修保养', icon: 'maintenance' },
       { to: '/app/insurance', label: '保险动态', icon: 'insurance' },
       { to: '/app/inspection', label: '检车动态', icon: 'inspection' },

@@ -44,6 +44,8 @@ export function usePermissions() {
   const canManageFleet = computed(() => FLEET_MANAGEMENT_ROLES.has(role.value))
   const canExportReports = computed(() => FLEET_MANAGEMENT_ROLES.has(role.value))
   const canManageAccounts = computed(() => ACCOUNT_ADMIN_ROLES.has(role.value))
+  /** 驾驶员档案增删改（段级/车间管理员等车队管理角色，不含仅账户管理员） */
+  const canEditDriverRecords = computed(() => FLEET_MANAGEMENT_ROLES.has(role.value))
   const canEditMapLocations = computed(() => MAP_LOCATION_EDIT_ROLES.has(role.value))
   const canDeleteNavPresetMarkers = computed(() => NAV_PRESET_DELETE_ROLES.has(role.value))
 
@@ -56,6 +58,7 @@ export function usePermissions() {
     canManageFleet,
     canExportReports,
     canManageAccounts,
+    canEditDriverRecords,
     canEditMapLocations,
     canDeleteNavPresetMarkers,
   }

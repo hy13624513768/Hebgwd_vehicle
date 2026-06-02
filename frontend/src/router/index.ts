@@ -102,8 +102,14 @@ const router = createRouter({
         {
           path: 'fuel',
           name: 'fuel',
-          meta: { title: '油卡使用' },
+          meta: { title: '油卡余额' },
           component: () => import('@/views/app/FuelView.vue'),
+        },
+        {
+          path: 'fuel-bills',
+          name: 'fuelBills',
+          meta: { title: '油卡账单' },
+          component: () => import('@/views/app/FuelBillsView.vue'),
         },
         {
           path: 'insurance',

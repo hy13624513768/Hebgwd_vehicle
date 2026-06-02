@@ -29,7 +29,7 @@
           <div class="k">油卡数量</div>
           <div class="v">{{ data.fuel_cards_total }}</div>
         </RouterLink>
-        <RouterLink class="card" :to="{ name: 'fuel' }">
+        <RouterLink class="card" :to="{ name: 'fuelBills' }">
           <div class="k">加油笔数</div>
           <div class="v">{{ data.fuel_records_total }}</div>
         </RouterLink>

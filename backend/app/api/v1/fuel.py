@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from app.core.deps import CurrentUser, DbSession
 from app.core.rbac import FleetUser
 from app.models.fuel import FuelBalance, FuelCard, FuelRecord
+from app.services.fuel_sync_service import stream_fuel_sync
 from app.services.workshop_service import (
     apply_workshop_name_to_fuel_record,
     list_active_workshop_names,
@@ -25,9 +26,23 @@ from app.schemas.fuel import (
     FuelRecordCreate,
     FuelRecordOut,
     FuelRecordPage,
+    FuelSyncRequest,
 )
 
 router = APIRouter(prefix="/fuel", tags=["fuel"])
+
+
+@router.post("/sync")
+async def sync_fuel_from_platform(_: CurrentUser, body: FuelSyncRequest) -> StreamingResponse:
+    """登录中国石油拉取油卡余额与流水，写入数据库（NDJSON 流式返回进度）。"""
+    return StreamingResponse(
+        stream_fuel_sync(body.date_from, body.date_to),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/balance-workshops", response_model=list[str])
@@ -46,7 +61,7 @@ def list_balances(
     sort_by: Annotated[
         Literal["card_no", "workshop", "vehicle_no", "amount", "reserve_fund", "total"],
         Query(description="排序字段"),
-    ] = "workshop",
+    ] = "card_no",
     sort_dir: Annotated[Literal["asc", "desc"], Query(description="排序方向")] = "asc",
 ) -> FuelBalancePage:
     base_conds: list = []
@@ -92,7 +107,6 @@ def list_balances(
     total_amount = db.scalar(sum_stmt) or 0
     count_zero, count_low, count_high, sum_zero, sum_low, sum_high = db.execute(stat_stmt).one()
     offset = (page - 1) * page_size
-    slash_last = case((FuelBalance.workshop == "/", 1), else_=0)
     sort_col_map = {
         "card_no": FuelBalance.card_no,
         "workshop": FuelBalance.workshop,
@@ -103,7 +117,7 @@ def list_balances(
     }
     col = sort_col_map[sort_by]
     order_col = col.asc() if sort_dir == "asc" else col.desc()
-    stmt = stmt.order_by(slash_last.asc(), order_col, FuelBalance.card_no.asc()).offset(offset).limit(page_size)
+    stmt = stmt.order_by(order_col, FuelBalance.id.asc()).offset(offset).limit(page_size)
     items = list(db.scalars(stmt).all())
     return FuelBalancePage(
         items=items,
@@ -189,8 +203,8 @@ def list_records(
     sort_by: Annotated[
         Literal["occur_time", "workshop", "amount", "volumn", "car_no", "card_asn"],
         Query(description="排序字段"),
-    ] = "occur_time",
-    sort_dir: Annotated[Literal["asc", "desc"], Query(description="排序方向")] = "desc",
+    ] = "card_asn",
+    sort_dir: Annotated[Literal["asc", "desc"], Query(description="排序方向")] = "asc",
 ) -> FuelRecordPage:
     conds: list = []
     cnt_stmt = select(func.count()).select_from(FuelRecord)
@@ -221,7 +235,7 @@ def list_records(
     }
     col = sort_col_map[sort_by]
     order_col = col.asc() if sort_dir == "asc" else col.desc()
-    stmt = stmt.order_by(order_col, FuelRecord.id.desc()).offset(offset).limit(page_size)
+    stmt = stmt.order_by(order_col, FuelRecord.id.asc()).offset(offset).limit(page_size)
     items = list(db.scalars(stmt).all())
     return FuelRecordPage(items=items, total=total)
 

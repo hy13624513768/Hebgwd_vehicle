@@ -1,258 +1,258 @@
 <template>
   <div class="maintenance-view">
+    <header class="page-head">
+      <div>
+        <h1 class="page-title">维修保养</h1>
+        <p class="page-desc muted">
+          展示驾驶员在「维修记录」页上传并经 AI 识别的结算单，明细已按<strong>维修词条</strong>自动归类。管理员可「上传样例测试」从本机逐张选图试识别。
+        </p>
+      </div>
+      <div v-if="categoryTotals && Object.keys(categoryTotals).length" class="cat-totals">
+        <span v-for="(amt, cat) in categoryTotals" :key="cat" class="cat-pill">
+          {{ cat }}：￥{{ fmtMoney(amt) }}
+        </span>
+      </div>
+    </header>
+
     <div class="toolbar">
       <select v-model.number="vehicleFilter" class="sel" @change="reload">
         <option :value="0">全部车辆</option>
         <option v-for="v in vehicles" :key="v.id" :value="v.id">{{ v.plate_number }}</option>
       </select>
-      <div class="toolbar-actions">
-        <button v-if="canManageFleet" type="button" class="primary" @click="openCreate">新增维修保养</button>
-        <a
-          class="primary primary--link"
-          :href="MAINTENANCE_DOCS_URL"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          查看具体维修单及照片
-        </a>
-      </div>
-      <button type="button" class="ghost ghost--toolbar" :disabled="loading" @click="reload">刷新</button>
+      <select v-model="statusFilter" class="sel" @change="reload">
+        <option value="">全部状态</option>
+        <option value="done">已识别</option>
+        <option value="failed">识别失败</option>
+        <option value="pending">待识别</option>
+      </select>
+      <button type="button" class="ghost" :disabled="loading" @click="reload">刷新</button>
+      <template v-if="canManageFleet">
+        <input
+          ref="sampleFileInput"
+          type="file"
+          accept="image/jpeg,image/jpg,image/png,image/webp"
+          class="sample-file-input"
+          @change="onSampleFilePicked"
+        />
+        <button type="button" class="primary" :disabled="uploadingSample" @click="pickSampleFile">
+          {{ uploadingSample ? '识别中…' : '上传样例测试' }}
+        </button>
+      </template>
     </div>
 
-    <div v-if="msg" class="msg">{{ msg }}</div>
-    <div v-if="loading" class="muted">加载中…</div>
-    <div v-else-if="!rows.length" class="muted empty-hint">暂无维修保养记录</div>
+    <div v-if="msg" class="msg" :class="msgKind === 'ok' ? 'msg--ok' : 'msg--err'">{{ msg }}</div>
+    <div v-if="loading" class="hint">加载中…</div>
+    <div v-else-if="!rows.length" class="hint">
+      暂无结算单数据。请让驾驶员在「维修记录」页上传结算单，或点击「上传样例测试」从本机选一张图片试识别。
+    </div>
 
     <table v-else class="tbl tbl--desktop">
       <thead>
         <tr>
-          <th>ID</th>
-          <th>车辆</th>
+          <th>车牌</th>
+          <th>单号</th>
           <th>日期</th>
-          <th>类别</th>
           <th>金额</th>
           <th>里程</th>
-          <th>服务商</th>
-          <th>说明</th>
-          <th class="w">操作</th>
+          <th>大类汇总</th>
+          <th>状态</th>
+          <th>操作</th>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="m in rows" :key="m.id">
-          <td>{{ m.id }}</td>
-          <td class="strong">{{ plateOf(m.vehicle_id) }}</td>
-          <td>{{ fmtDate(m.service_date) }}</td>
-          <td>{{ m.category }}</td>
-          <td>{{ m.amount }}</td>
-          <td>{{ m.mileage }}</td>
-          <td>{{ m.vendor }}</td>
-          <td class="t">{{ m.description || '-' }}</td>
-          <td class="w">
-            <button v-if="canManageFleet" type="button" class="link" @click="openEdit(m)">编辑</button>
-            <button v-if="canManageFleet" type="button" class="link danger" @click="onDelete(m)">删除</button>
+        <tr v-for="r in rows" :key="r.id">
+          <td class="strong">{{ r.plate_number }}</td>
+          <td>{{ r.order_no || '—' }}</td>
+          <td>{{ r.service_date ? fmtDate(r.service_date) : '—' }}</td>
+          <td>￥{{ r.total_amount }}</td>
+          <td>{{ r.mileage_in ? `${r.mileage_in} km` : '—' }}</td>
+          <td class="cat-cell">
+            <span v-for="(amt, cat) in r.category_summary" :key="`${r.id}-${cat}`" class="cat-tag">
+              {{ cat }} {{ fmtMoney(amt) }}
+            </span>
           </td>
+          <td><span class="status" :class="`status--${r.recognition_status}`">{{ statusLabel(r.recognition_status) }}</span></td>
+          <td><button type="button" class="link" @click="openDetail(r.id)">明细</button></td>
         </tr>
       </tbody>
     </table>
 
-    <ul v-if="!loading && rows.length" class="maint-cards" aria-label="维修保养列表">
-      <li v-for="m in rows" :key="`m-${m.id}`" class="maint-card">
-        <div class="maint-card__top">
-          <span class="maint-card__id">#{{ m.id }}</span>
-          <span class="maint-card__plate">{{ plateOf(m.vehicle_id) }}</span>
+    <ul v-if="!loading && rows.length" class="settle-cards">
+      <li v-for="r in rows" :key="`m-${r.id}`" class="settle-card">
+        <div class="settle-card__top">
+          <strong>{{ r.plate_number }}</strong>
+          <span>￥{{ r.total_amount }}</span>
         </div>
-        <div class="maint-card__sub">
-          <span class="maint-card__date">{{ fmtDate(m.service_date) }}</span>
-          <span class="maint-card__cat">{{ m.category }}</span>
+        <p class="muted">{{ r.order_no }} · {{ r.service_date ? fmtDate(r.service_date) : '日期未知' }}</p>
+        <div class="cat-tags">
+          <span v-for="(amt, cat) in r.category_summary" :key="`${r.id}-m-${cat}`" class="cat-tag">{{ cat }} {{ fmtMoney(amt) }}</span>
         </div>
-        <div class="maint-card__grid">
-          <div class="maint-card__row">
-            <span class="maint-card__k">金额</span>
-            <span class="maint-card__v">{{ m.amount }}</span>
-          </div>
-          <div class="maint-card__row">
-            <span class="maint-card__k">里程</span>
-            <span class="maint-card__v">{{ m.mileage }} km</span>
-          </div>
-          <div class="maint-card__row maint-card__row--full">
-            <span class="maint-card__k">服务商</span>
-            <span class="maint-card__v">{{ m.vendor || '—' }}</span>
-          </div>
-        </div>
-        <div class="maint-card__desc">
-          <span class="maint-card__desc-label">说明</span>
-          <p class="maint-card__desc-text">{{ m.description || '—' }}</p>
-        </div>
-        <div v-if="canManageFleet" class="maint-card__actions">
-          <button type="button" class="maint-card__btn" @click="openEdit(m)">编辑</button>
-          <button type="button" class="maint-card__btn maint-card__btn--danger" @click="onDelete(m)">删除</button>
-        </div>
+        <button type="button" class="link" @click="openDetail(r.id)">查看明细与归类</button>
       </li>
     </ul>
 
-    <AppModal :open="modalOpen" :title="modalTitle" @close="modalOpen = false">
-      <div class="form form--maintenance">
-        <label>车辆</label>
-        <select v-model.number="form.vehicle_id">
-          <option v-for="v in vehicles" :key="v.id" :value="v.id">{{ v.plate_number }}</option>
-        </select>
-
-        <label>服务日期</label>
-        <input v-model="form.service_date" type="date" />
-
-        <label>类别</label>
-        <select v-model="form.category">
-          <option value="保养">保养</option>
-          <option value="维修">维修</option>
-          <option value="年检">年检</option>
-        </select>
-
-        <label>金额（元）</label>
-        <input v-model="form.amount" type="number" min="0" step="0.01" />
-
-        <label>里程（km）</label>
-        <input v-model.number="form.mileage" type="number" min="0" />
-
-        <label>服务商</label>
-        <input v-model.trim="form.vendor" />
-
-        <label>说明</label>
-        <textarea v-model.trim="form.description" rows="3" />
-      </div>
+    <AppModal :open="detailOpen" title="结算单明细与词条归类" @close="detailOpen = false">
+      <div v-if="detailLoading" class="hint">加载明细…</div>
+      <template v-else-if="detail">
+        <div class="detail-meta">
+          <p><strong>车牌</strong> {{ detail.plate_number }} · <strong>单号</strong> {{ detail.order_no }}</p>
+          <p><strong>车型</strong> {{ detail.vehicle_model || '—' }} · <strong>里程</strong> {{ detail.mileage_in }} km</p>
+          <p><strong>合计</strong> ￥{{ detail.total_amount }}</p>
+        </div>
+        <table class="tbl tbl-detail">
+          <thead>
+            <tr>
+              <th>项目</th>
+              <th>金额</th>
+              <th>一级大类</th>
+              <th>二级子类</th>
+              <th>匹配词条</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="line in detail.lines" :key="line.id">
+              <td>{{ line.item_name }}{{ line.part_name ? ` / ${line.part_name}` : '' }}</td>
+              <td>￥{{ line.amount }}</td>
+              <td>{{ line.category_l1 || '—' }}</td>
+              <td>{{ line.category_l2 || '—' }}</td>
+              <td>
+                {{ line.term_name || '—' }}
+                <span v-if="line.match_score" class="match-score">({{ line.match_score }}%)</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </template>
       <template #footer>
-        <button type="button" class="ghost" @click="modalOpen = false">取消</button>
-        <button type="button" class="primary" :disabled="saving" @click="save">保存</button>
+        <button type="button" class="primary" @click="detailOpen = false">关闭</button>
       </template>
     </AppModal>
   </div>
 </template>
 
 <script setup lang="ts">
-import axios from 'axios'
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 
-import * as mapi from '@/api/maintenance'
+import * as repairApi from '@/api/repairRecords'
+import type { RepairSettlement, SettlementSummary } from '@/api/repairRecords'
 import * as vapi from '@/api/vehicles'
 import AppModal from '@/components/AppModal.vue'
 import { usePermissions } from '@/composables/usePermissions'
-import type { MaintenanceRecord, Vehicle } from '@/api/types'
+import type { Vehicle } from '@/api/types'
 import { fmtDate } from '@/utils/format'
-
-const MAINTENANCE_DOCS_URL =
-  'https://docs.qq.com/sheet/DS3BYckdqVWJFeXd2?tab=8g31c3&viewId=vM95eG'
 
 const { canManageFleet } = usePermissions()
 
 const loading = ref(true)
-const saving = ref(false)
-const rows = ref<MaintenanceRecord[]>([])
+const uploadingSample = ref(false)
+const sampleFileInput = ref<HTMLInputElement | null>(null)
+const rows = ref<SettlementSummary[]>([])
+const categoryTotals = ref<Record<string, number>>({})
 const vehicles = ref<Vehicle[]>([])
 const vehicleFilter = ref(0)
+const statusFilter = ref('')
 const msg = ref('')
+const msgKind = ref<'ok' | 'err'>('err')
 
-const modalOpen = ref(false)
-const modalTitle = ref('新增维修保养')
-const editingId = ref<number | null>(null)
+const detailOpen = ref(false)
+const detailLoading = ref(false)
+const detail = ref<RepairSettlement | null>(null)
 
-const form = reactive({
-  vehicle_id: 0,
-  service_date: '',
-  category: '保养',
-  amount: '0',
-  mileage: 0,
-  vendor: '',
-  description: '',
-})
+function fmtMoney(v: number | string) {
+  return Number(v || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
 
-function plateOf(id: number) {
-  return vehicles.value.find((x) => x.id === id)?.plate_number || `#${id}`
+function statusLabel(s: string) {
+  const m: Record<string, string> = {
+    done: '已识别',
+    failed: '失败',
+    pending: '待识别',
+    processing: '识别中',
+  }
+  return m[s] || s
 }
 
 async function reload() {
   loading.value = true
-  msg.value = ''
+  if (!uploadingSample.value) msg.value = ''
   try {
-    const [vs, ms] = await Promise.all([
+    const [vs, res] = await Promise.all([
       vapi.listVehicles({ limit: 200 }),
-      mapi.listMaintenance({
+      repairApi.listSettlementSummaries({
         vehicle_id: vehicleFilter.value || undefined,
-        limit: 200,
+        recognition_status: statusFilter.value || undefined,
+        limit: 100,
       }),
     ])
     vehicles.value = vs
-    rows.value = ms
-    if (!form.vehicle_id && vehicles.value.length) {
-      form.vehicle_id = vehicles.value[0].id
-    }
+    rows.value = res.items
+    categoryTotals.value = res.category_totals
   } catch {
-    msg.value = '加载维修保养数据失败'
+    msgKind.value = 'err'
+    msg.value = '加载结算单失败'
   } finally {
     loading.value = false
   }
 }
 
-function resetForm() {
-  form.vehicle_id = vehicles.value[0]?.id || 0
-  form.service_date = new Date().toISOString().slice(0, 10)
-  form.category = '保养'
-  form.amount = '0'
-  form.mileage = 0
-  form.vendor = ''
-  form.description = ''
-}
-
-function openCreate() {
-  editingId.value = null
-  modalTitle.value = '新增维修保养'
-  resetForm()
-  modalOpen.value = true
-}
-
-function openEdit(m: MaintenanceRecord) {
-  editingId.value = m.id
-  modalTitle.value = '编辑维修保养'
-  form.vehicle_id = m.vehicle_id
-  form.service_date = m.service_date.slice(0, 10)
-  form.category = m.category
-  form.amount = String(m.amount)
-  form.mileage = m.mileage
-  form.vendor = m.vendor
-  form.description = m.description || ''
-  modalOpen.value = true
-}
-
-async function save() {
-  saving.value = true
-  msg.value = ''
+async function openDetail(settlementId: number) {
+  detailOpen.value = true
+  detailLoading.value = true
+  detail.value = null
   try {
-    const payload: Record<string, unknown> = {
-      vehicle_id: form.vehicle_id,
-      service_date: form.service_date,
-      category: form.category,
-      amount: form.amount,
-      mileage: form.mileage,
-      vendor: form.vendor,
-      description: form.description || null,
-    }
-    if (editingId.value) await mapi.updateMaintenance(editingId.value, payload)
-    else await mapi.createMaintenance(payload)
-    modalOpen.value = false
-    await reload()
-  } catch (e) {
-    msg.value = axios.isAxiosError(e) ? String(e.response?.data?.detail || '保存失败') : '保存失败'
+    detail.value = await repairApi.getSettlementDetail(settlementId)
+  } catch {
+    msg.value = '加载结算明细失败'
+    detailOpen.value = false
   } finally {
-    saving.value = false
+    detailLoading.value = false
   }
 }
 
-async function onDelete(m: MaintenanceRecord) {
-  if (!confirm(`确定删除维修保养记录 #${m.id} ？`)) return
-  msg.value = ''
+function pickSampleFile() {
+  if (!vehicles.value.length) {
+    msgKind.value = 'err'
+    msg.value = '请先在「车辆管理」中登记至少一辆车'
+    return
+  }
+  sampleFileInput.value?.click()
+}
+
+async function onSampleFilePicked(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+
+  uploadingSample.value = true
+  msg.value = '正在上传并识别，大约需要 30～60 秒…'
+  msgKind.value = 'ok'
   try {
-    await mapi.deleteMaintenance(m.id)
-    await reload()
-  } catch (e) {
-    msg.value = axios.isAxiosError(e) ? String(e.response?.data?.detail || '删除失败') : '删除失败'
+    const record = await repairApi.uploadSettlementTest(file, vehicleFilter.value || undefined)
+    const st = record.settlement
+    const lines = st?.lines?.length ?? 0
+    if (st?.recognition_status === 'done') {
+      msgKind.value = 'ok'
+      msg.value = `识别完成：${st.plate_number || record.plate_number} · ${lines} 项明细 · 合计 ￥${st.total_amount}`
+      await reload()
+      if (st.id) await openDetail(st.id)
+    } else {
+      msgKind.value = 'err'
+      msg.value = st?.recognition_error || '识别未完成，请换一张更清晰的图片重试'
+      await reload()
+    }
+  } catch (err: unknown) {
+    const e = err as { response?: { status?: number; data?: { detail?: string } }; code?: string }
+    msgKind.value = 'err'
+    if (e.response?.status === 401) {
+      msg.value = '登录已过期或未登录，请退出后重新登录，再试上传'
+    } else if (e.code === 'ECONNABORTED') {
+      msg.value = '识别超时（超过 3 分钟），请换一张更小的图片或稍后重试'
+    } else {
+      msg.value = e.response?.data?.detail || '上传或识别失败'
+    }
+  } finally {
+    uploadingSample.value = false
   }
 }
 
@@ -261,241 +261,112 @@ onMounted(reload)
 
 <style scoped>
 .maintenance-view {
-  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.page-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-family: Georgia, 'Times New Roman', 'Songti SC', serif;
+}
+
+.page-desc {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.cat-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.cat-pill {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--cl-warm-sand);
+  border: 1px solid var(--cl-border-cream);
+  font-size: 12px;
 }
 
 .toolbar {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   align-items: center;
-  margin-bottom: 12px;
-  flex-wrap: wrap;
-}
-
-.toolbar-actions {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  flex-wrap: wrap;
 }
 
 .sel {
-  min-width: 220px;
-  padding: 10px 10px;
+  min-width: 160px;
+  padding: 10px;
   border-radius: 10px;
   border: 1px solid var(--cl-border-cream);
   background: var(--cl-ivory);
-  color: var(--cl-near-black);
 }
 
 .primary {
   cursor: pointer;
   border: 0;
   border-radius: 10px;
-  padding: 10px 12px;
+  padding: 10px 14px;
   background: var(--cl-brand);
   color: var(--cl-ivory);
-  font-family: inherit;
-  font-size: inherit;
-  font-weight: 800;
-  line-height: 1.25;
-  -webkit-font-smoothing: antialiased;
-}
-
-a.primary--link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  text-decoration: none;
-  box-sizing: border-box;
-  font-weight: 800;
-  text-align: center;
-  line-height: 1.3;
-  word-break: break-word;
-}
-
-a.primary--link:link,
-a.primary--link:visited {
-  color: var(--cl-ivory);
-}
-
-a.primary--link:hover {
-  filter: brightness(1.03);
-}
-
-a.primary--link:focus-visible {
-  outline: 2px solid var(--cl-focus);
-  outline-offset: 2px;
+  font-weight: 700;
+  font-size: 13px;
 }
 
 .ghost {
   cursor: pointer;
   border: 1px solid var(--cl-border-warm);
   background: transparent;
-  color: var(--cl-near-black);
   border-radius: 10px;
   padding: 10px 12px;
 }
 
 .msg {
-  margin-bottom: 12px;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: 12px;
+  font-size: 13px;
+}
+
+.msg--err {
   border: 1px solid rgba(181, 51, 51, 0.35);
   background: rgba(181, 51, 51, 0.08);
   color: var(--cl-error);
+}
+
+.msg--ok {
+  border: 1px solid rgba(39, 143, 80, 0.35);
+  background: rgba(39, 143, 80, 0.08);
+  color: #1d5e36;
+}
+
+.sample-file-input {
+  display: none;
+}
+
+.hint {
+  padding: 20px;
+  text-align: center;
+  color: var(--cl-olive);
   font-size: 13px;
 }
 
 .muted {
   color: var(--cl-olive);
   font-size: 13px;
-}
-
-.empty-hint {
-  padding: 24px 12px;
-  text-align: center;
-}
-
-/* 桌面端表格；窄屏隐藏 */
-.tbl--desktop {
-  display: table;
-}
-
-.maint-cards {
-  display: none;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.maint-card {
-  border: 1px solid var(--cl-border-cream);
-  border-radius: 14px;
-  background: var(--cl-ivory);
-  padding: 14px;
-  box-shadow: rgba(0, 0, 0, 0.04) 0 4px 16px;
-}
-
-.maint-card__top {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 6px;
-}
-
-.maint-card__id {
-  font-size: 12px;
-  color: var(--cl-olive);
-  font-weight: 700;
-}
-
-.maint-card__plate {
-  font-size: 1.05rem;
-  font-weight: 900;
-  color: var(--cl-near-black);
-  letter-spacing: 0.02em;
-}
-
-.maint-card__sub {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-  font-size: 13px;
-  color: var(--cl-charcoal);
-}
-
-.maint-card__cat {
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--cl-warm-sand);
-  font-weight: 700;
-  font-size: 12px;
-  color: var(--cl-olive);
-}
-
-.maint-card__grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px 12px;
-  margin: 0 0 12px;
-}
-
-.maint-card__row {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 6px 10px;
-  align-items: baseline;
-  font-size: 13px;
-}
-
-.maint-card__row--full {
-  grid-column: 1 / -1;
-}
-
-.maint-card__k {
-  color: var(--cl-olive);
-  font-weight: 700;
-  font-size: 12px;
-}
-
-.maint-card__v {
-  color: var(--cl-near-black);
-  word-break: break-word;
-}
-
-.maint-card__desc {
-  padding-top: 10px;
-  border-top: 1px solid var(--cl-border-cream);
-}
-
-.maint-card__desc-label {
-  display: block;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--cl-olive);
-  margin-bottom: 6px;
-}
-
-.maint-card__desc-text {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--cl-charcoal);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.maint-card__actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--cl-border-cream);
-}
-
-.maint-card__btn {
-  cursor: pointer;
-  min-height: 44px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid var(--cl-border-warm);
-  background: var(--cl-white);
-  color: var(--cl-coral);
-  font-family: inherit;
-  font-size: 15px;
-  font-weight: 700;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.maint-card__btn--danger {
-  color: var(--cl-error);
-  border-color: rgba(181, 51, 51, 0.35);
-  background: rgba(181, 51, 51, 0.06);
 }
 
 .tbl {
@@ -516,118 +387,101 @@ td {
 }
 
 th {
+  background: var(--cl-warm-sand);
   color: var(--cl-olive);
   font-weight: 800;
-  background: var(--cl-warm-sand);
 }
 
 .strong {
   font-weight: 900;
 }
 
-.t {
-  max-width: 360px;
+.cat-cell {
+  max-width: 280px;
 }
 
-.w {
-  width: 150px;
-  white-space: nowrap;
+.cat-tag {
+  display: inline-block;
+  margin: 2px 4px 2px 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(201, 100, 66, 0.1);
+  font-size: 11px;
+}
+
+.status--done {
+  color: #1d5e36;
+  font-weight: 700;
+}
+
+.status--failed {
+  color: var(--cl-error);
+  font-weight: 700;
 }
 
 .link {
-  cursor: pointer;
   border: 0;
   background: transparent;
   color: var(--cl-coral);
-  margin-right: 10px;
-  padding: 0;
+  cursor: pointer;
   font-size: 13px;
 }
 
-.link.danger {
-  color: var(--cl-error);
+.settle-cards {
+  display: none;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  gap: 12px;
+  flex-direction: column;
 }
 
-.form {
-  display: grid;
-  grid-template-columns: 140px 1fr;
-  gap: 10px 12px;
-  align-items: center;
+.settle-card {
+  border: 1px solid var(--cl-border-cream);
+  border-radius: 14px;
+  padding: 14px;
+  background: var(--cl-ivory);
 }
 
-label {
-  color: var(--cl-charcoal);
+.settle-card__top {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.cat-tags {
+  margin: 8px 0;
+}
+
+.detail-meta {
+  margin-bottom: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.tbl-detail {
   font-size: 12px;
 }
 
-input,
-select,
-textarea {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 10px 10px;
-  border-radius: 10px;
-  border: 1px solid var(--cl-border-cream);
-  background: var(--cl-white);
-  color: var(--cl-near-black);
+.match-score {
+  color: var(--cl-olive);
+  font-size: 11px;
 }
 
-textarea {
-  resize: vertical;
-}
-
-/* 与 AppLayout 移动端断点一致 */
 @media (max-width: 768px) {
-  .toolbar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .sel {
-    min-width: 0;
-    width: 100%;
-    font-size: 16px; /* 避免 iOS 聚焦时整页缩放 */
-  }
-
-  .toolbar-actions {
-    flex-direction: column;
-    width: 100%;
-    align-items: stretch;
-  }
-
-  .toolbar .primary:not(.primary--link),
-  .toolbar .primary--link,
-  .toolbar .ghost--toolbar {
-    width: 100%;
-    min-height: 44px;
-    padding-left: 14px;
-    padding-right: 14px;
-  }
-
   .tbl--desktop {
     display: none;
   }
 
-  .maint-cards {
+  .settle-cards {
     display: flex;
-    flex-direction: column;
-    gap: 12px;
   }
 
-  .form--maintenance {
-    grid-template-columns: 1fr;
-    gap: 8px 0;
-  }
-
-  .form--maintenance label {
-    margin-top: 4px;
-    font-weight: 700;
-  }
-
-  .form--maintenance input,
-  .form--maintenance select,
-  .form--maintenance textarea {
-    font-size: 16px;
+  .sel,
+  .primary,
+  .ghost {
+    width: 100%;
+    min-height: 44px;
   }
 }
 </style>

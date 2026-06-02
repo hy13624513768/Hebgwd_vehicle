@@ -201,6 +201,38 @@ def run_runtime_migrations() -> None:
                     conn.execute(text("ALTER TABLE bus_fuel_record ADD COLUMN workshop VARCHAR(128) NOT NULL DEFAULT ''"))
                 except ProgrammingError:
                     pass
+        # 旧库 occur_time 为 TEXT，无法按日期筛选；统一迁移为 TIMESTAMPTZ
+        with engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT data_type
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'bus_fuel_record'
+                      AND column_name = 'occur_time'
+                    """
+                )
+            ).first()
+        if row and str(row[0]).lower() in {"text", "character varying"}:
+            with engine.begin() as conn:
+                try:
+                    conn.execute(
+                        text(
+                            """
+                            ALTER TABLE bus_fuel_record
+                            ALTER COLUMN occur_time TYPE TIMESTAMPTZ
+                            USING (
+                                CASE
+                                    WHEN occur_time IS NULL OR trim(occur_time::text) = '' THEN NOW()
+                                    ELSE occur_time::timestamptz
+                                END
+                            )
+                            """
+                        )
+                    )
+                except ProgrammingError:
+                    pass
 
     if insp.has_table("bus_nav_preset"):
         cols = {c["name"] for c in insp.get_columns("bus_nav_preset")}

@@ -91,3 +91,19 @@ class FuelBalancePage(BaseModel):
     sum_zero: Decimal
     sum_low: Decimal
     sum_high: Decimal
+
+
+class FuelSyncRequest(BaseModel):
+    date_from: date | None = Field(default=None, description="加油流水查询起始日期（含）")
+    date_to: date | None = Field(default=None, description="加油流水查询截止日期（含）")
+
+
+class FuelSyncResult(BaseModel):
+    ok: bool
+    balance_written: int = 0
+    record_written: int = 0
+    balance_matched: int = 0
+    record_matched: int = 0
+    date_from: str | None = None
+    date_to: str | None = None
+    error: str | None = None

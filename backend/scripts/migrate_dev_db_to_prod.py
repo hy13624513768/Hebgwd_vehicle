@@ -1,7 +1,18 @@
 #!/usr/bin/env python3
-"""将开发库 bus_system_test 全量复制到生产库（覆盖生产数据）。"""
+"""将开发库 bus_system_test 复制到生产库（覆盖生产数据）。
+
+默认迁移全部业务表。加 --exclude-nav 时保留生产库中的段内导航数据
+（bus_nav_preset、bus_nav_preset_op_log 不覆盖）。
+
+用法（内网）：
+    export DEV_DATABASE_URL="postgresql://postgres:***@bus-system-postgresql.ns-1ht608x0.svc:5432/bus_system_test"
+    export PROD_DATABASE_URL="postgresql://postgres:***@test-db-postgresql.ns-1ht608x0.svc:5432/bus_system_test"
+    python scripts/migrate_dev_db_to_prod.py
+    python scripts/migrate_dev_db_to_prod.py --exclude-nav
+"""
 from __future__ import annotations
 
+import argparse
 import sys
 from io import StringIO
 from pathlib import Path
@@ -9,6 +20,8 @@ from pathlib import Path
 _root = Path(__file__).resolve().parent.parent
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
+
+import os
 
 import psycopg2
 from psycopg2 import sql
@@ -18,12 +31,7 @@ from app.db.base import Base
 
 import app.models  # noqa: F401
 
-# 仅迁移时使用外网地址（日常运行请用集群内网，见 deploy/database.env.example）：
-#   set -a && source ../deploy/database.env.example  # 或自行 export
-#   export DEV_DATABASE_URL="postgresql://postgres:***@dbconn.sealosbja.site:39754/bus_system_test"
-#   export PROD_DATABASE_URL="postgresql://postgres:***@dbconn.sealosbja.site:48528/bus_system_test"
-#   python scripts/migrate_dev_db_to_prod.py
-import os
+NAV_TABLES = frozenset({"bus_nav_preset", "bus_nav_preset_op_log"})
 
 def _require_dsn(name: str) -> str:
     val = os.environ.get(name, "").strip()
@@ -57,15 +65,15 @@ def copy_table(src, dst, table: str) -> int:
             buf,
         )
     raw = buf.getvalue()
-    if not raw.strip():
-        return 0
-    buf.seek(0)
     with dst.cursor() as dc:
+        if not raw.strip():
+            return 0
+        buf.seek(0)
         dc.copy_expert(
             sql.SQL("COPY {} FROM STDIN WITH (FORMAT csv, HEADER true)").format(sql.Identifier(table)),
             buf,
         )
-    return raw.count("\n") - 1
+    return raw.count("\n") - 1 if raw.strip() else 0
 
 
 def reset_sequences(conn, tables: list[str]) -> None:
@@ -100,7 +108,7 @@ def ensure_prod_schema() -> None:
     engine.dispose()
 
 
-def main() -> None:
+def migrate(*, exclude_nav: bool = False) -> None:
     ensure_prod_schema()
     print("连接开发库与生产库…")
     src = psycopg2.connect(DEV_DSN)
@@ -108,8 +116,15 @@ def main() -> None:
     src.autocommit = False
     dst.autocommit = False
     try:
-        tables = list_public_tables(src)
-        print(f"共 {len(tables)} 张表: {', '.join(tables)}")
+        all_tables = list_public_tables(src)
+        skip = NAV_TABLES if exclude_nav else frozenset()
+        tables = [t for t in all_tables if t not in skip]
+        kept = [t for t in all_tables if t in skip]
+
+        print(f"共 {len(all_tables)} 张表，将迁移 {len(tables)} 张")
+        if kept:
+            print(f"保留生产库不动: {', '.join(kept)}")
+        print(f"迁移表: {', '.join(tables)}")
 
         with dst.cursor() as cur:
             cur.execute("SET session_replication_role = replica")
@@ -133,6 +148,11 @@ def main() -> None:
         dst.commit()
         src.commit()
         print(f"\n完成：已向生产库写入约 {total_rows} 行数据。")
+        if kept:
+            with dst.cursor() as cur:
+                for t in kept:
+                    cur.execute(sql.SQL("SELECT COUNT(*) FROM {}").format(sql.Identifier(t)))
+                    print(f"  保留 {t}: {cur.fetchone()[0]} 行（生产库原值）")
     except Exception:
         dst.rollback()
         src.rollback()
@@ -140,6 +160,17 @@ def main() -> None:
     finally:
         src.close()
         dst.close()
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="开发库 → 生产库数据迁移")
+    ap.add_argument(
+        "--exclude-nav",
+        action="store_true",
+        help="不覆盖 bus_nav_preset / bus_nav_preset_op_log（保留生产环境导航数据）",
+    )
+    args = ap.parse_args()
+    migrate(exclude_nav=args.exclude_nav)
 
 
 if __name__ == "__main__":

@@ -390,8 +390,7 @@ const EXCLUDED_LICENSE_TYPES = new Set([
 const PHONE_PATTERN = /^\d{11}$/
 const ID_CARD_PATTERN = /^\d{17}[\dX]$/
 
-const { canManageAccounts } = usePermissions()
-const canEditDriverRecords = canManageAccounts
+const { canEditDriverRecords } = usePermissions()
 
 const loading = ref(true)
 const saving = ref(false)

@@ -314,3 +314,13 @@ def seed_nav_presets_if_empty(db: Session) -> None:
     for order, (name, lng, lat) in enumerate(_NAV_PRESET_SEED):
         db.add(NavPreset(sort_order=order, name=name, lng=lng, lat=lat, is_locked=True))
     db.commit()
+
+
+def seed_maintenance_terms_if_empty(db: Session) -> None:
+    """维修词条：表为空时导入预置三级分类。"""
+    from app.services.maintenance_term_service import seed_preset_if_empty
+
+    created, skipped = seed_preset_if_empty(db, force=False)
+    if not skipped:
+        db.commit()
+

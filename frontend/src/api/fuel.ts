@@ -48,6 +48,77 @@ export type FuelBalancePage = {
   sum_high: string
 }
 
+export type FuelSyncResult = {
+  ok: boolean
+  balance_written?: number
+  record_written?: number
+  balance_matched?: number
+  record_matched?: number
+  date_from?: string
+  date_to?: string
+  error?: string
+}
+
+function apiBaseUrl(): string {
+  const apiRoot = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') ?? ''
+  return apiRoot ? `${apiRoot}/api/v1` : '/api/v1'
+}
+
+export async function syncFuelFromPlatform(
+  params: { date_from?: string; date_to?: string },
+  onProgress: (message: string) => void,
+): Promise<FuelSyncResult> {
+  const token = localStorage.getItem('access_token')
+  const resp = await fetch(`${apiBaseUrl()}/fuel/sync`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(params),
+  })
+  if (!resp.ok) {
+    let detail = `同步请求失败（HTTP ${resp.status}）`
+    try {
+      const err = (await resp.json()) as { detail?: string }
+      if (err.detail) detail = err.detail
+    } catch {
+      /* ignore */
+    }
+    throw new Error(detail)
+  }
+  if (!resp.body) throw new Error('服务器未返回同步进度')
+
+  const reader = resp.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let lastResult: FuelSyncResult = { ok: false }
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+      const evt = JSON.parse(trimmed) as {
+        type: string
+        message?: string
+        ok?: boolean
+        error?: string
+      }
+      if (evt.type === 'progress' && evt.message) onProgress(evt.message)
+      if (evt.type === 'done') lastResult = { ok: true, ...(evt as FuelSyncResult) }
+      if (evt.type === 'error') throw new Error(evt.message || '同步失败')
+    }
+  }
+
+  if (!lastResult.ok) throw new Error('同步未完成')
+  return lastResult
+}
+
 export async function listFuelCards(params?: { skip?: number; limit?: number }): Promise<FuelCard[]> {
   const { data } = await http.get<FuelCard[]>('/fuel/cards', { params })
   return data

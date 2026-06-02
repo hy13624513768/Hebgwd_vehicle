@@ -10,6 +10,7 @@ export type Vehicle = {
   status: string
   remarks: string | null
   org_unit: string
+  workshop_id: number | null
   vehicle_class: string
   vehicle_type_label: string
   history_plate: string

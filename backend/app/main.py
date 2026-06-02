@@ -23,6 +23,7 @@ async def lifespan(app: FastAPI):
         bootstrap_admin_if_needed(db)
         sync_workshops_master_and_links(db)
         seed_service.seed_nav_presets_if_empty(db)
+        seed_service.seed_maintenance_terms_if_empty(db)
         if settings.demo_seeding_enabled:
             seed_service.seed_standard_accounts(db)
             seed_service.seed_demo_if_empty(db)
