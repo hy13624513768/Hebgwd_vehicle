@@ -81,6 +81,13 @@ async function onPersistNavPresets() {
     saveSuccessOpen.value = true
   } catch {
     alert('保存预设点到服务器失败，请检查网络或权限后重试')
+    try {
+      const markers = await fetchNavPresets()
+      navPresetMarkers.value =
+        markers.length > 0 ? normalizePresetMarkersForStorage(markers) : cloneDefaults()
+    } catch {
+      /* 保持当前本地列表 */
+    }
   } finally {
     presetsSaving.value = false
   }

@@ -10,14 +10,18 @@ from sqlalchemy.exc import IntegrityError
 from app.core.deps import DbSession, get_current_user
 from app.core.roles import (
     SUPER_ADMIN,
+    VEHICLE_DRIVER,
     assignable_roles_for_actor,
     can_actor_manage_user,
     is_account_admin,
     rank,
 )
 from app.core.security import hash_password
+from app.models.driver import Driver
 from app.models.user import User
 from app.schemas.user_admin import (
+    DriverAccountBatchResult,
+    DriverAccountItem,
     RoleDefinitionOut,
     UserAdminCreate,
     UserAdminListOut,
@@ -36,6 +40,13 @@ ROLE_DESCRIPTIONS: dict[str, str] = {
     "workshop_admin": "车间日常事务与数据维护。",
     "vehicle_driver": "车辆驾驶与出车相关操作，默认不可进行车队全量配置。",
 }
+
+
+# 用户名允许的字符（与 create_user 中一致）：中文、字母、数字与 _-.
+USERNAME_PATTERN = re.compile(r"^[\u4e00-\u9fffA-Za-z0-9_\-.]{1,64}$")
+
+# 批量生成驾驶员账号时使用的统一初始密码（哈希后入库，绝不存明文）
+DRIVER_ACCOUNT_PASSWORD = "Hebgwd_123"
 
 
 def _require_account_admin(user: User) -> User:
@@ -143,6 +154,89 @@ def create_user(db: DbSession, current: AccountAdmin, body: UserAdminCreate) -> 
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="用户名已存在")
     db.refresh(u)
     return UserAdminOut.model_validate(u)
+
+
+@router.post("/generate-driver-accounts", response_model=DriverAccountBatchResult)
+def generate_driver_accounts(db: DbSession, current: AccountAdmin) -> DriverAccountBatchResult:
+    """从驾驶员表（bus_driver）批量生成「车辆驾驶员」分级登录账号。
+
+    规则：用户名 = 姓名 + 身份证号后 6 位；密码统一为系统初始密码并做哈希存储。
+    姓名为空、身份证号缺失或不足 6 位的记录计入 failed 并跳过；
+    用户名已存在的记录计入 skipped；整批操作不会因个别异常而失败。
+    """
+    if VEHICLE_DRIVER not in set(assignable_roles_for_actor(current.role)):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权创建驾驶员账号")
+
+    # 统一密码只哈希一次后复用：账号本就共用同一初始密码，避免逐条 bcrypt 造成批量过慢
+    password_hash = hash_password(DRIVER_ACCOUNT_PASSWORD)
+
+    # 预读已有用户名（含本批已占用的），用于去重，避免触发数据库唯一约束错误
+    claimed: set[str] = {
+        (name or "").strip()
+        for name in db.scalars(select(User.username)).all()
+        if name and str(name).strip()
+    }
+
+    created = 0
+    skipped = 0
+    failed = 0
+    details: list[DriverAccountItem] = []
+
+    drivers = list(db.scalars(select(Driver).order_by(Driver.id.asc())).all())
+    for d in drivers:
+        name = (d.name or "").strip()
+        id_card = (d.id_card or "").strip()
+        if not name:
+            failed += 1
+            details.append(DriverAccountItem(driver_id=d.id, name="", status="failed", reason="姓名为空"))
+            continue
+        if len(id_card) < 6:
+            failed += 1
+            details.append(
+                DriverAccountItem(driver_id=d.id, name=name, status="failed", reason="身份证号缺失或不足6位")
+            )
+            continue
+
+        username = f"{name}{id_card[-6:]}"
+        if not USERNAME_PATTERN.match(username):
+            failed += 1
+            details.append(
+                DriverAccountItem(
+                    driver_id=d.id, name=name, username=username, status="failed", reason="用户名含非法字符"
+                )
+            )
+            continue
+        if username in claimed:
+            skipped += 1
+            details.append(
+                DriverAccountItem(
+                    driver_id=d.id, name=name, username=username, status="skipped", reason="用户名已存在"
+                )
+            )
+            continue
+
+        db.add(
+            User(
+                username=username,
+                password_hash=password_hash,
+                display_name=name,
+                role=VEHICLE_DRIVER,
+                is_active=True,
+            )
+        )
+        claimed.add(username)
+        created += 1
+        details.append(DriverAccountItem(driver_id=d.id, name=name, username=username, status="created"))
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="批量创建失败，请重试"
+        )
+
+    return DriverAccountBatchResult(created=created, skipped=skipped, failed=failed, details=details)
 
 
 @router.patch("/{user_id}", response_model=UserAdminOut)

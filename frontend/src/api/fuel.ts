@@ -36,16 +36,20 @@ export type FuelBalance = {
   updated_at: string
 }
 
+export type FuelBalanceBucket = {
+  key: string
+  label: string
+  filter_min: string | number | null
+  filter_max: string | number | null
+  count: number
+  sum: string
+}
+
 export type FuelBalancePage = {
   items: FuelBalance[]
   total: number
   total_amount: string
-  count_zero: number
-  count_low: number
-  count_high: number
-  sum_zero: string
-  sum_low: string
-  sum_high: string
+  buckets: FuelBalanceBucket[]
 }
 
 export type FuelSyncResult = {
@@ -62,6 +66,16 @@ export type FuelSyncResult = {
 function apiBaseUrl(): string {
   const apiRoot = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') ?? ''
   return apiRoot ? `${apiRoot}/api/v1` : '/api/v1'
+}
+
+export type FuelSyncStats = {
+  today_count: number
+  last_synced_at: string | null
+}
+
+export async function fetchFuelSyncStats(): Promise<FuelSyncStats> {
+  const { data } = await http.get<FuelSyncStats>('/fuel/sync-stats')
+  return data
 }
 
 export async function syncFuelFromPlatform(
@@ -110,7 +124,7 @@ export async function syncFuelFromPlatform(
         error?: string
       }
       if (evt.type === 'progress' && evt.message) onProgress(evt.message)
-      if (evt.type === 'done') lastResult = { ok: true, ...(evt as FuelSyncResult) }
+      if (evt.type === 'done') lastResult = { ...(evt as FuelSyncResult), ok: true }
       if (evt.type === 'error') throw new Error(evt.message || '同步失败')
     }
   }
@@ -128,7 +142,8 @@ export async function listFuelBalancesPaged(params: {
   page: number
   page_size: number
   workshop?: string
-  amount_bucket?: 'zero' | 'low' | 'high'
+  total_min?: number
+  total_max?: number
   sort_by?: 'card_no' | 'workshop' | 'vehicle_no' | 'amount' | 'reserve_fund' | 'total'
   sort_dir?: 'asc' | 'desc'
 }): Promise<FuelBalancePage> {

@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from decimal import Decimal
 from io import BytesIO
 from typing import Annotated, Literal
 
@@ -12,12 +13,14 @@ from app.core.deps import CurrentUser, DbSession
 from app.core.rbac import FleetUser
 from app.models.fuel import FuelBalance, FuelCard, FuelRecord
 from app.services.fuel_sync_service import stream_fuel_sync
+from app.services.fuel_sync_stats_service import get_fuel_sync_stats
 from app.services.workshop_service import (
     apply_workshop_name_to_fuel_record,
     list_active_workshop_names,
     resolve_workshop_filter,
 )
 from app.schemas.fuel import (
+    FuelBalanceBucket,
     FuelBalancePage,
     FuelBalanceOut,
     FuelCardCreate,
@@ -27,22 +30,52 @@ from app.schemas.fuel import (
     FuelRecordOut,
     FuelRecordPage,
     FuelSyncRequest,
+    FuelSyncStatsOut,
 )
 
 router = APIRouter(prefix="/fuel", tags=["fuel"])
 
+# 余额区间档位定义（按“合计”total 划分）。
+# stat 表示统计条件类型：zero -> total==0；range -> lower < total <= upper；high -> total > lower。
+# filter_min / filter_max 是前端点击图表时用于筛选表格的边界（total >= filter_min 且 total <= filter_max）。
+_BALANCE_BUCKETS: list[dict] = [
+    {"key": "zero", "label": "= 0", "stat": "zero", "lower": None, "upper": None, "filter_min": 0, "filter_max": 0},
+    {"key": "b1", "label": "0 - 200", "stat": "range", "lower": 0, "upper": 200, "filter_min": Decimal("0.01"), "filter_max": 200},
+    {"key": "b2", "label": "200 - 500", "stat": "range", "lower": 200, "upper": 500, "filter_min": Decimal("200.01"), "filter_max": 500},
+    {"key": "b3", "label": "500 - 1000", "stat": "range", "lower": 500, "upper": 1000, "filter_min": Decimal("500.01"), "filter_max": 1000},
+    {"key": "b4", "label": "1000 - 2000", "stat": "range", "lower": 1000, "upper": 2000, "filter_min": Decimal("1000.01"), "filter_max": 2000},
+    {"key": "b5", "label": "2000 - 5000", "stat": "range", "lower": 2000, "upper": 5000, "filter_min": Decimal("2000.01"), "filter_max": 5000},
+    {"key": "b6", "label": "5000 以上", "stat": "high", "lower": 5000, "upper": None, "filter_min": Decimal("5000.01"), "filter_max": None},
+]
+
+
+def _bucket_stat_cond(bucket: dict):
+    """根据档位定义构造该档的统计过滤条件。"""
+    if bucket["stat"] == "zero":
+        return FuelBalance.total == 0
+    if bucket["stat"] == "high":
+        return FuelBalance.total > bucket["lower"]
+    return and_(FuelBalance.total > bucket["lower"], FuelBalance.total <= bucket["upper"])
+
 
 @router.post("/sync")
-async def sync_fuel_from_platform(_: CurrentUser, body: FuelSyncRequest) -> StreamingResponse:
+async def sync_fuel_from_platform(current: CurrentUser, body: FuelSyncRequest) -> StreamingResponse:
     """登录中国石油拉取油卡余额与流水，写入数据库（NDJSON 流式返回进度）。"""
     return StreamingResponse(
-        stream_fuel_sync(body.date_from, body.date_to),
+        stream_fuel_sync(body.date_from, body.date_to, user_id=current.id),
         media_type="application/x-ndjson",
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.get("/sync-stats", response_model=FuelSyncStatsOut)
+def fuel_sync_stats(db: DbSession, _: CurrentUser) -> FuelSyncStatsOut:
+    """今日油卡余额同步次数与上次刷新时间。"""
+    stats = get_fuel_sync_stats(db)
+    return FuelSyncStatsOut(**stats)
 
 
 @router.get("/balance-workshops", response_model=list[str])
@@ -57,7 +90,8 @@ def list_balances(
     page: Annotated[int, Query(ge=1, description="页码，从 1 开始")] = 1,
     page_size: Annotated[int, Query(ge=1, le=100, description="每页条数")] = 15,
     workshop: Annotated[str | None, Query(max_length=128, description="车间名称模糊匹配")] = None,
-    amount_bucket: Annotated[str | None, Query(pattern="^(zero|low|high)$")] = None,
+    total_min: Annotated[float | None, Query(description="合计余额下限（含）")] = None,
+    total_max: Annotated[float | None, Query(description="合计余额上限（含）")] = None,
     sort_by: Annotated[
         Literal["card_no", "workshop", "vehicle_no", "amount", "reserve_fund", "total"],
         Query(description="排序字段"),
@@ -69,30 +103,23 @@ def list_balances(
     if ws:
         base_conds.append(FuelBalance.workshop == ws)
 
+    # 表格与“共X张/合计”随价格区间变化；区间分布图（buckets）只随车间变化，反映整体分布。
     data_conds = list(base_conds)
-    if amount_bucket == "zero":
-        data_conds.append(FuelBalance.total == 0)
-    elif amount_bucket == "low":
-        data_conds.append(and_(FuelBalance.total > 0, FuelBalance.total <= 500))
-    elif amount_bucket == "high":
-        data_conds.append(FuelBalance.total > 500)
+    if total_min is not None:
+        data_conds.append(FuelBalance.total >= total_min)
+    if total_max is not None:
+        data_conds.append(FuelBalance.total <= total_max)
 
     cnt_stmt = select(func.count()).select_from(FuelBalance)
     sum_stmt = select(func.coalesce(func.sum(FuelBalance.total), 0)).select_from(FuelBalance)
-    stat_stmt = select(
-        func.coalesce(func.sum(case((FuelBalance.total == 0, 1), else_=0)), 0),
-        func.coalesce(
-            func.sum(case((and_(FuelBalance.total > 0, FuelBalance.total <= 500), 1), else_=0)),
-            0,
-        ),
-        func.coalesce(func.sum(case((FuelBalance.total > 500, 1), else_=0)), 0),
-        func.coalesce(func.sum(case((FuelBalance.total == 0, FuelBalance.total), else_=0)), 0),
-        func.coalesce(
-            func.sum(case((and_(FuelBalance.total > 0, FuelBalance.total <= 500), FuelBalance.total), else_=0)),
-            0,
-        ),
-        func.coalesce(func.sum(case((FuelBalance.total > 500, FuelBalance.total), else_=0)), 0),
-    ).select_from(FuelBalance)
+
+    stat_cols = []
+    for b in _BALANCE_BUCKETS:
+        cond = _bucket_stat_cond(b)
+        stat_cols.append(func.coalesce(func.sum(case((cond, 1), else_=0)), 0))
+        stat_cols.append(func.coalesce(func.sum(case((cond, FuelBalance.total), else_=0)), 0))
+    stat_stmt = select(*stat_cols).select_from(FuelBalance)
+
     stmt = select(FuelBalance)
     if base_conds:
         w = and_(*base_conds)
@@ -105,7 +132,23 @@ def list_balances(
 
     total = int(db.scalar(cnt_stmt) or 0)
     total_amount = db.scalar(sum_stmt) or 0
-    count_zero, count_low, count_high, sum_zero, sum_low, sum_high = db.execute(stat_stmt).one()
+
+    stat_row = db.execute(stat_stmt).one()
+    buckets: list[FuelBalanceBucket] = []
+    for idx, b in enumerate(_BALANCE_BUCKETS):
+        cnt = int(stat_row[idx * 2] or 0)
+        amt = stat_row[idx * 2 + 1] or 0
+        buckets.append(
+            FuelBalanceBucket(
+                key=b["key"],
+                label=b["label"],
+                filter_min=b["filter_min"],
+                filter_max=b["filter_max"],
+                count=cnt,
+                sum=amt,
+            )
+        )
+
     offset = (page - 1) * page_size
     sort_col_map = {
         "card_no": FuelBalance.card_no,
@@ -123,12 +166,7 @@ def list_balances(
         items=items,
         total=total,
         total_amount=total_amount,
-        count_zero=int(count_zero or 0),
-        count_low=int(count_low or 0),
-        count_high=int(count_high or 0),
-        sum_zero=sum_zero or 0,
-        sum_low=sum_low or 0,
-        sum_high=sum_high or 0,
+        buckets=buckets,
     )
 
 

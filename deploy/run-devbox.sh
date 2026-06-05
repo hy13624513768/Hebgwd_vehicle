@@ -13,12 +13,12 @@ if [[ ! -f "$BACK/.env" ]]; then
 fi
 
 echo "后端: http://0.0.0.0:8000  |  前端(Vite): http://0.0.0.0:8080"
-echo "提示: 修改 backend/.env（尤其是 DATABASE_URL）后必须重启后端进程，否则仍会连旧库、页面无数据。"
+echo "提示: 后端代码会自动重载；修改 backend/.env（尤其是 DATABASE_URL）后仍需重启进程，否则仍会连旧库、页面无数据。"
 echo "Sealos 控制台请将公网入口映射到容器 8080；线上前端公网示例见 deploy/urls.env.example"
 echo "若热更新失败，请在 frontend 目录复制 .env.development.local.example 为 .env.development.local"
 echo ""
 
-(cd "$BACK" && exec python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000) &
+(cd "$BACK" && exec python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload) &
 UV_PID=$!
 trap 'kill "$UV_PID" 2>/dev/null || true' EXIT
 (cd "$FRONT" && exec npm run dev)

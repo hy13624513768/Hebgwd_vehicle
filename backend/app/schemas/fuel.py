@@ -79,18 +79,24 @@ class FuelBalanceOut(BaseModel):
     updated_at: datetime
 
 
+class FuelBalanceBucket(BaseModel):
+    """单个余额区间档位的统计与筛选边界。"""
+
+    key: str
+    label: str
+    filter_min: Decimal | None = None
+    filter_max: Decimal | None = None
+    count: int
+    sum: Decimal
+
+
 class FuelBalancePage(BaseModel):
     """油卡余额分页（列表接口）。"""
 
     items: list[FuelBalanceOut]
     total: int
     total_amount: Decimal
-    count_zero: int
-    count_low: int
-    count_high: int
-    sum_zero: Decimal
-    sum_low: Decimal
-    sum_high: Decimal
+    buckets: list[FuelBalanceBucket]
 
 
 class FuelSyncRequest(BaseModel):
@@ -107,3 +113,10 @@ class FuelSyncResult(BaseModel):
     date_from: str | None = None
     date_to: str | None = None
     error: str | None = None
+
+
+class FuelSyncStatsOut(BaseModel):
+    """油卡余额同步统计（今日刷新次数、上次刷新时间）。"""
+
+    today_count: int = 0
+    last_synced_at: datetime | None = None

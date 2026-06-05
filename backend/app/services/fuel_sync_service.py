@@ -25,6 +25,7 @@ def _load_oil_query_class():
 async def stream_fuel_sync(
     date_from: date | None,
     date_to: date | None,
+    user_id: int | None = None,
 ) -> AsyncIterator[str]:
     """执行油卡同步并以 NDJSON 流式返回进度与结果。"""
     if _sync_lock.locked():
@@ -50,6 +51,9 @@ async def stream_fuel_sync(
                 )
                 result = await tool.run_sync()
                 if result.get("ok"):
+                    from app.services.fuel_sync_stats_service import record_fuel_sync_log
+
+                    record_fuel_sync_log(user_id, success=True)
                     await queue.put({"type": "done", **result})
                 else:
                     await queue.put(

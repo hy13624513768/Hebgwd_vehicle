@@ -46,6 +46,14 @@
           </select>
         </div>
         <button type="button" class="btn btn--primary" @click="openCreate">新建账号</button>
+        <button
+          type="button"
+          class="btn"
+          :disabled="generating"
+          @click="generateDriverAccounts"
+        >
+          {{ generating ? '生成中…' : '从驾驶员表批量生成账号' }}
+        </button>
       </div>
 
       <p v-if="msg" class="msg" :class="{ 'msg--err': msgIsErr }">{{ msg }}</p>
@@ -199,6 +207,8 @@ const loading = ref(false)
 
 const msg = ref('')
 const msgIsErr = ref(false)
+
+const generating = ref(false)
 
 const modalOpen = ref(false)
 const modalMode = ref<'create' | 'edit'>('create')
@@ -478,6 +488,33 @@ async function confirmDelete(row: UserAdmin) {
     const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
     msg.value = typeof d === 'string' ? d : '删除失败'
     msgIsErr.value = true
+  }
+}
+
+async function generateDriverAccounts() {
+  if (generating.value) return
+  if (
+    !window.confirm(
+      '将根据「驾驶员表」批量生成车辆驾驶员账号：\n用户名 = 姓名 + 身份证号后6位，初始密码统一为 Hebgwd_123。\n已存在的账号会自动跳过。确定继续？',
+    )
+  ) {
+    return
+  }
+  generating.value = true
+  msg.value = ''
+  msgIsErr.value = false
+  try {
+    const res = await usersApi.generateDriverAccounts()
+    msg.value = `批量生成完成：成功 ${res.created} 个，跳过 ${res.skipped} 个，失败 ${res.failed} 个。`
+    msgIsErr.value = res.failed > 0
+    skip.value = 0
+    await loadUsers()
+  } catch (e: unknown) {
+    const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+    msg.value = typeof d === 'string' ? d : '批量生成失败'
+    msgIsErr.value = true
+  } finally {
+    generating.value = false
   }
 }
 

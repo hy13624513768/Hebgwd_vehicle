@@ -38,6 +38,19 @@
             </li>
           </ul>
         </div>
+        <div class="driver-chart driver-chart--bars">
+          <h3 class="driver-chart__title">年龄分布</h3>
+          <p v-if="!ageChips.length" class="driver-chart__empty">暂无年龄分布数据</p>
+          <ul v-else class="driver-chart__bar-list driver-chart__bar-list--scroll" role="list">
+            <li v-for="([label, cnt], idx) in ageChips" :key="'age-bar-' + label" class="driver-chart__bar-row" role="listitem">
+              <span class="driver-chart__bar-label" :title="label">{{ label }}</span>
+              <div class="driver-chart__bar-track" :title="`${label}：${cnt} 人`">
+                <div class="driver-chart__bar-fill" :style="ageBarFillStyle(cnt, idx)" />
+              </div>
+              <span class="driver-chart__bar-val">{{ cnt }}</span>
+            </li>
+          </ul>
+        </div>
       </div>
     </section>
 
@@ -569,6 +582,12 @@ const licenseChips = computed(() => {
   return Object.entries(stats.value.by_license_type).sort((a, b) => b[1] - a[1])
 })
 
+/** 年龄分布：保留后端给定的年龄段顺序（由年轻到年长），不按数量排序 */
+const ageChips = computed(() => {
+  if (!stats.value?.by_age_group) return [] as [string, number][]
+  return Object.entries(stats.value.by_age_group)
+})
+
 const workshopBarMax = computed(() => {
   const chips = workshopChips.value
   if (!chips.length) return 1
@@ -577,6 +596,12 @@ const workshopBarMax = computed(() => {
 
 const licenseBarMax = computed(() => {
   const chips = licenseChips.value
+  if (!chips.length) return 1
+  return Math.max(...chips.map((x) => x[1]), 1)
+})
+
+const ageBarMax = computed(() => {
+  const chips = ageChips.value
   if (!chips.length) return 1
   return Math.max(...chips.map((x) => x[1]), 1)
 })
@@ -614,6 +639,13 @@ function workshopBarFillStyle(cnt: number, idx: number): Record<string, string> 
 /** 准驾条形宽度 + 渐变（避免模板中调用独立函数名在 HMR 下偶发非函数错误） */
 function licenseBarFillStyle(cnt: number, idx: number): Record<string, string> {
   const max = licenseBarMax.value
+  const pct = max > 0 ? (cnt / max) * 100 : 0
+  return { width: `${pct}%`, ...barFillStyle(idx) }
+}
+
+/** 年龄段条形宽度 + 渐变 */
+function ageBarFillStyle(cnt: number, idx: number): Record<string, string> {
+  const max = ageBarMax.value
   const pct = max > 0 ? (cnt / max) * 100 : 0
   return { width: `${pct}%`, ...barFillStyle(idx) }
 }
@@ -884,12 +916,19 @@ onMounted(loadAll)
 
 .driver-charts {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid var(--cl-border-cream);
   min-width: 0;
+}
+
+/* 中等屏：三图改两列，避免每个条形图过窄 */
+@media (max-width: 1100px) and (min-width: 769px) {
+  .driver-charts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .driver-chart {

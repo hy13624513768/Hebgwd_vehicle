@@ -1,3 +1,5 @@
+import re
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -44,6 +46,45 @@ def _employment_status_bucket(raw: str | None) -> str:
     return "(其他)"
 
 
+# 年龄段分桶顺序（与前端展示顺序一致，固定从年轻到年长）
+AGE_GROUP_ORDER = ("29岁及以下", "30–39岁", "40–49岁", "50–59岁", "60岁及以上")
+_AGE_UNKNOWN = "未知"
+
+
+def _age_from_id_card(id_card: str | None) -> int | None:
+    """从身份证号解析周岁年龄；无法识别返回 None（与前端 idCard.ts 规则一致）。"""
+    s = (id_card or "").strip().upper()
+    if re.fullmatch(r"\d{17}[\dX]", s):
+        year, month, day = int(s[6:10]), int(s[10:12]), int(s[12:14])
+    elif re.fullmatch(r"\d{15}", s):
+        yy = int(s[6:8])
+        year = 2000 + yy if yy <= 30 else 1900 + yy
+        month, day = int(s[8:10]), int(s[10:12])
+    else:
+        return None
+    try:
+        birth = date(year, month, day)
+    except ValueError:
+        return None
+    today = date.today()
+    age = today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
+    return age if age >= 0 else None
+
+
+def _age_group_bucket(age: int | None) -> str:
+    if age is None:
+        return _AGE_UNKNOWN
+    if age < 30:
+        return "29岁及以下"
+    if age < 40:
+        return "30–39岁"
+    if age < 50:
+        return "40–49岁"
+    if age < 60:
+        return "50–59岁"
+    return "60岁及以上"
+
+
 @router.get("/filters", response_model=DriverFiltersOut)
 def driver_filters(db: DbSession, _: CurrentUser) -> DriverFiltersOut:
     lt_rows = db.execute(
@@ -74,11 +115,24 @@ def driver_stats(db: DbSession, _: CurrentUser) -> DriverStatsOut:
         bucket = _employment_status_bucket(st)
         if bucket in by_employment_status:
             by_employment_status[bucket] += int(cnt)
+
+    by_age_group: dict[str, int] = {g: 0 for g in AGE_GROUP_ORDER}
+    unknown_age = 0
+    for (id_card,) in db.execute(select(Driver.id_card)).all():
+        group = _age_group_bucket(_age_from_id_card(id_card))
+        if group == _AGE_UNKNOWN:
+            unknown_age += 1
+        else:
+            by_age_group[group] += 1
+    if unknown_age:
+        by_age_group[_AGE_UNKNOWN] = unknown_age
+
     return DriverStatsOut(
         total=total,
         by_workshop=by_workshop,
         by_license_type=by_license_type,
         by_employment_status=by_employment_status,
+        by_age_group=by_age_group,
     )
 
 

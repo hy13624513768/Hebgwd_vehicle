@@ -16,6 +16,7 @@ export type DriverStats = {
   by_workshop: Record<string, number>
   by_license_type: Record<string, number>
   by_employment_status: Record<string, number>
+  by_age_group: Record<string, number>
 }
 
 export async function listDrivers(params?: {

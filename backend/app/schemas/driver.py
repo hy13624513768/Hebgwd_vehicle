@@ -118,3 +118,7 @@ class DriverStatsOut(BaseModel):
         default_factory=dict,
         description="人员状态统计，键为本单位、外包",
     )
+    by_age_group: dict[str, int] = Field(
+        default_factory=dict,
+        description="年龄段统计（由身份证号推算），键如 29岁及以下、30–39岁 等",
+    )

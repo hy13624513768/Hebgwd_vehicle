@@ -237,7 +237,7 @@ VITE_AMAP_SECURITY_JSCODE=对应安全密钥</pre>
             {{ mapPickHintText }}
           </p>
           <p v-if="manualPresetPersist" class="amap-editor-tip amap-editor-tip--persist">
-            新增或修改标记后，须点击「保存当前标记」才会写入服务器。
+            新增或修改标记后，须点击「保存当前标记」才会写入服务器；「删除当前」验证密码后会自动保存。
           </p>
           <p class="amap-editor-tip">{{ dragHintText }}</p>
         </div>
@@ -1008,6 +1008,11 @@ function performRemoveSelectedPresetMarker() {
   reindexMapDragUnlockedAfterRemove(idx)
   presetMarkers.value = presetMarkers.value.filter((_, i) => i !== idx)
   selectPresetAtIndex(Math.min(idx, presetMarkers.value.length - 1))
+  void nextTick(() => {
+    if (props.manualPresetPersist) {
+      emit('presets-persist-request')
+    }
+  })
 }
 
 function closeDeletePwdModal() {

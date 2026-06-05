@@ -1,5 +1,5 @@
 from app.models.driver import Driver
-from app.models.fuel import FuelBalance, FuelCard, FuelRecord
+from app.models.fuel import FuelBalance, FuelCard, FuelRecord, FuelSyncLog
 from app.models.maintenance_term import MaintenanceTerm
 from app.models.repair_record import RepairRecord, RepairSettlement, RepairSettlementLine
 from app.models.maintenance import MaintenanceRecord
@@ -23,6 +23,7 @@ __all__ = [
     "FuelCard",
     "FuelRecord",
     "FuelBalance",
+    "FuelSyncLog",
     "NavPreset",
     "NavPresetOpLog",
     "Workshop",

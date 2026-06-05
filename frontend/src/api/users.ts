@@ -20,6 +20,21 @@ export type UserAdminList = {
   total: number
 }
 
+export type DriverAccountItem = {
+  driver_id: number
+  name: string
+  username: string | null
+  status: string
+  reason: string
+}
+
+export type DriverAccountBatchResult = {
+  created: number
+  skipped: number
+  failed: number
+  details: DriverAccountItem[]
+}
+
 export async function fetchRoleDefinitions(): Promise<RoleDefinition[]> {
   const { data } = await http.get<RoleDefinition[]>('/users/role-definitions')
   return data
@@ -61,4 +76,9 @@ export async function updateUser(
 
 export async function deleteUser(id: number): Promise<void> {
   await http.delete(`/users/${id}`)
+}
+
+export async function generateDriverAccounts(): Promise<DriverAccountBatchResult> {
+  const { data } = await http.post<DriverAccountBatchResult>('/users/generate-driver-accounts')
+  return data
 }

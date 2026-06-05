@@ -41,3 +41,22 @@ class UserAdminUpdate(BaseModel):
 class UserAdminListOut(BaseModel):
     items: list[UserAdminOut]
     total: int
+
+
+class DriverAccountItem(BaseModel):
+    """单个驾驶员的处理结果（用于前端逐条展示/排查）。"""
+
+    driver_id: int
+    name: str = ""
+    username: str | None = None
+    status: str  # created / skipped / failed
+    reason: str = ""
+
+
+class DriverAccountBatchResult(BaseModel):
+    """从 bus_driver 批量生成驾驶员账号的汇总结果。"""
+
+    created: int = 0
+    skipped: int = 0
+    failed: int = 0
+    details: list[DriverAccountItem] = []
