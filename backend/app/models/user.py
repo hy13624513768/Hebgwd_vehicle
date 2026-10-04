@@ -7,7 +7,7 @@ from app.db.base import Base
 
 
 class User(Base):
-    __tablename__ = "sys_user"
+    __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
@@ -17,7 +17,7 @@ class User(Base):
         String(32), nullable=False, default="vehicle_driver"
     )  # super_admin / section_admin / workshop_* / vehicle_driver
     workshop_id: Mapped[int | None] = mapped_column(
-        ForeignKey("bus_workshop.id"), nullable=True, index=True
+        ForeignKey("workshops.id"), nullable=True, index=True
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 

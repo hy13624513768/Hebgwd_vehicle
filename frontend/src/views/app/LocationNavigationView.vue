@@ -98,29 +98,41 @@ async function onPersistNavPresets() {
 .loc-nav {
   width: 100%;
   max-width: min(1200px, 100%);
+  min-width: 0;
   margin: 0 auto;
 }
 
 .loc-nav__head {
-  margin-bottom: 1rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 0.65rem;
+  padding-inline: 0.1rem;
 }
 
 .loc-nav__title {
-  margin: 0 0 0.35rem;
-  font-size: clamp(1.1rem, 2.5vw, 1.35rem);
-  font-weight: 600;
+  flex: 0 0 auto;
+  margin: 0;
+  font-size: clamp(1rem, 2vw, 1.2rem);
+  font-weight: 700;
 }
 
 .loc-nav__desc {
+  min-width: 0;
   margin: 0;
-  font-size: 0.875rem;
-  line-height: 1.55;
+  font-size: 0.78rem;
+  line-height: 1.4;
 }
 
 .loc-nav__warn {
-  margin: 0.5rem 0 0;
+  flex: 1 1 100%;
+  margin: 0;
   font-size: 0.85rem;
   color: #a63d2d;
+}
+
+.loc-nav__map {
+  min-width: 0;
 }
 
 .loc-nav__desc code {
@@ -151,5 +163,33 @@ async function onPersistNavPresets() {
 
 .muted {
   color: var(--cl-olive);
+}
+
+@media (max-width: 768px) {
+  .loc-nav {
+    height: 100%;
+    min-height: 0;
+  }
+
+  /* 应用顶栏已展示当前页名称，手机端不再重复占用首屏高度。 */
+  .loc-nav__head {
+    display: block;
+    margin: 0;
+    padding: 0;
+  }
+
+  .loc-nav__title,
+  .loc-nav__desc {
+    display: none;
+  }
+
+  .loc-nav__warn {
+    margin: 0 0 0.4rem;
+    padding: 0.45rem 0.6rem;
+    border-radius: 10px;
+    background: rgba(166, 61, 45, 0.08);
+    font-size: 0.75rem;
+    line-height: 1.4;
+  }
 }
 </style>

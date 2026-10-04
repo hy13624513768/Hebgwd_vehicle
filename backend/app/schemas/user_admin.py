@@ -54,7 +54,7 @@ class DriverAccountItem(BaseModel):
 
 
 class DriverAccountBatchResult(BaseModel):
-    """从 bus_driver 批量生成驾驶员账号的汇总结果。"""
+    """从 drivers 批量生成驾驶员账号的汇总结果。"""
 
     created: int = 0
     skipped: int = 0

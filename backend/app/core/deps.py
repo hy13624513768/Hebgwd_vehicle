@@ -17,6 +17,9 @@ def get_db():
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 
@@ -46,6 +49,7 @@ def user_to_info(user: User) -> UserInfo:
         username=user.username,
         display_name=user.display_name,
         role=getattr(user, "role", "staff"),
+        workshop_id=getattr(user, "workshop_id", None),
     )
 
 

@@ -2,10 +2,10 @@
 
 本文说明正式上线前建议完成的配置，以及如何区分**测试 / 预发 / 生产**等环境。代码层面已支持：
 
-- **Sealos / DevBox 入口与运维脚本均在 `deploy/`**：`entrypoint-backend.sh`、`entrypoint-frontend.sh`、`prep-release-backend.sh`（发版前准备）、`run-devbox.sh`（前后端同时开发）、`push-acr.sh`（构建推送镜像）、`urls.env.example`、`database.env.example`（内网/外网库地址说明）、`sealos-backend-production.env.example`
+- **Sealos / DevBox 入口、运维脚本和部署环境模板均在 `deploy/`**：`entrypoint-backend.sh`、`entrypoint-frontend.sh`、`prep-release-backend.sh`（发版前准备）、`run-devbox.sh`（前后端同时开发）、`push-acr.sh`（构建推送镜像）、`.env.acr.example`、`urls.env.example`、`database.env.example`（内网/外网库地址说明）、`sealos-backend-production.env.example`
 - 后端：`ENVIRONMENT`、`DEMO_SEEDING_ENABLED`、`CORS_ORIGINS`（见 `backend/.env.example`）
 - 前端：`VITE_API_BASE_URL`、`VITE_APP_ENV`、高德 Key（见 `frontend/.env.example`）
-- 健康检查：`GET /health` 返回 `environment` 字段
+- 存活检查：`GET /health`；数据库就绪检查：`GET /ready`
 
 ---
 
@@ -35,7 +35,10 @@
 - `**CORS_ORIGINS**`：仅填写真实前端 HTTPS 地址（多个用英文逗号分隔）。
 - `**DEMO_SEEDING_ENABLED=false**`：避免写入演示车辆、`fleet_mgr` / `driver1` / `staff1` 等演示账号。
 - `**BOOTSTRAP_ADMIN_PASSWORD**`：首次上线后可改为强密码，或通过后台改密（勿长期使用示例密码）。
+- `MEDIA_STORAGE_BACKEND=s3`：生产媒体必须写入私有 S3 兼容对象存储；同时配置 `S3_ENDPOINT`、凭据与 `S3_BUCKET`。
 - **进程**：生产不要用 `--reload`；使用 `uvicorn` + 进程管理（systemd、NSSM、Docker 等），前置 **HTTPS**（Nginx / Caddy）。
+- **初始化**：生产 API Pod 设置 `AUTO_DB_INIT=false`；发布时先用同一后端镜像运行一次 `python -m app.db.bootstrap`，成功后再滚动 API Pod。
+- **连接池**：按数据库连接上限和 API 副本数设置 `DATABASE_POOL_SIZE` / `DATABASE_MAX_OVERFLOW`；默认单 Pod 最大 20 个连接。
 - **运维**：监控 `/health`；日志落盘或接入日志平台。
 
 ### 2. 前端（必做）
@@ -92,29 +95,29 @@ npm run build
 
 | 环境 | 内网主机（Service） | 库名 |
 | --- | --- | --- |
-| **开发** | `bus-system-postgresql.ns-1ht608x0.svc:5432` | `bus_system_test` |
-| **生产** | `test-db-postgresql.ns-1ht608x0.svc:5432` | `bus_system_test` |
+| **开发** | `hebgwd-fullstack-db-postgresql.ns-1ht608x0.svc:5432` | `hebgwd_development` |
+| **生产** | 部署时填写独立生产数据库 Service | 部署时填写 |
 
 开发 `DATABASE_URL` 示例（写入 `backend/.env` 或开发后端应用环境变量）：
 
 ```env
 ENVIRONMENT=development
-DATABASE_URL=postgresql+psycopg2://postgres:<开发库密码>@bus-system-postgresql.ns-1ht608x0.svc:5432/bus_system_test
+DATABASE_URL=postgresql+psycopg2://postgres:<开发库密码>@hebgwd-fullstack-db-postgresql.ns-1ht608x0.svc:5432/hebgwd_development
 ```
 
 生产 `DATABASE_URL` 示例（写入 Sealos **生产后端**应用环境变量，模板见 `deploy/sealos-backend-production.env.example`）：
 
 ```env
 ENVIRONMENT=production
-DATABASE_URL=postgresql+psycopg2://postgres:<生产库密码>@test-db-postgresql.ns-1ht608x0.svc:5432/bus_system_test
+DATABASE_URL=postgresql+psycopg2://postgres:<生产库密码>@PRODUCTION_DB_HOST:5432/PRODUCTION_DB_NAME
 ```
 
 **数据迁移（开发库 → 生产库，仅执行迁移时）**：
 
 ```bash
 # 外网地址见 deploy/database.env.example
-export DEV_DATABASE_URL="postgresql://postgres:<密码>@dbconn.sealosbja.site:39754/bus_system_test"
-export PROD_DATABASE_URL="postgresql://postgres:<密码>@dbconn.sealosbja.site:48528/bus_system_test"
+export DEV_DATABASE_URL="postgresql://postgres:<密码>@DEVELOPMENT_PUBLIC_HOST:PORT/hebgwd_development"
+export PROD_DATABASE_URL="postgresql://postgres:<密码>@PRODUCTION_PUBLIC_HOST:PORT/PRODUCTION_DB_NAME"
 cd hebgwd_vehicle/backend && .venv/bin/python scripts/migrate_dev_db_to_prod.py
 ```
 
@@ -157,14 +160,23 @@ docker build -t your-registry/hebgwd-frontend:latest \
 | 变量名 | 说明 |
 | --- | --- |
 | `ENVIRONMENT` | `production` |
-| `DATABASE_URL` | 生产内网：`postgresql+psycopg2://postgres:<密码>@test-db-postgresql.ns-1ht608x0.svc:5432/bus_system_test` |
+| `DATABASE_URL` | 生产内网：`postgresql+psycopg2://postgres:<密码>@PRODUCTION_DB_HOST:5432/PRODUCTION_DB_NAME` |
+| `AUTO_DB_INIT` | `false`；数据库初始化交给独占 initContainer/Job |
+| `DATABASE_POOL_SIZE` / `DATABASE_MAX_OVERFLOW` | 默认 `10` / `10`；总上限按 API Pod 数累加 |
+| `DATABASE_STATEMENT_TIMEOUT_MS` | 默认 `30000`，阻止失控查询长期占用连接 |
 | `JWT_SECRET` | 随机长串 |
 | `JWT_EXPIRE_MINUTES` | 如 `120` |
 | `CORS_ORIGINS` | 前端公网 Origin，如 `https://xwyommoychvz.sealosbja.site`（多个用英文逗号；可与 `deploy/urls.env.example` 对齐） |
 | `DEMO_SEEDING_ENABLED` | 生产建议 `false` |
+| `KUNLUN_BALANCE_SCRIPT` | 生产固定为 `/app/kunlun/获取油卡余额.py`；脚本、登录模块和种子配置由 initContainer 写入云端 `emptyDir`，其中 `token.json` 必须允许 API 用户写回刷新后的令牌 |
+| `MEDIA_STORAGE_BACKEND` | 生产固定为 `s3`；`local` 仅供本机开发 |
+| `S3_ENDPOINT` / `S3_BUCKET` | 私有 S3 兼容端点与桶；建议桶名 `hebgwd-vehicle-assets` |
+| `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | 通过 Sealos Secret 注入，禁止写入镜像或仓库 |
 | `BOOTSTRAP_ADMIN_USERNAME` / `BOOTSTRAP_ADMIN_PASSWORD` / `BOOTSTRAP_ADMIN_DISPLAY_NAME` | 按需 |
 
-Pydantic 会读取这些环境变量（与 `.env` 同名）；**无需**在镜像里拷贝 `.env` 文件。
+Pydantic 会读取这些环境变量（与 `.env` 同名）；**无需**在镜像里拷贝 `.env` 文件。生产配置若仍启用自动初始化、SQLite、演示数据、弱 JWT、默认管理员密码或本地媒体目录，应用会直接拒绝启动。
+
+首次上线先保持 **1 个后端副本**完成容量观察。当前认证无进程内会话、媒体走共享私有 S3，后续可以横向扩容；扩容前需要核算 PostgreSQL 总连接数。
 
 ### 应用 B：前端静态站点
 
@@ -176,6 +188,17 @@ Pydantic 会读取这些环境变量（与 `.env` 同名）；**无需**在镜�
 
 **顺序**：先部署后端并确认 `GET https://后端公网/health` 正常，再用该后端地址构建前端镜像并部署前端。若后端域名变更，需**重新构建**前端镜像并更新 `VITE_API_BASE_URL`。
 
+推荐的生产发布顺序：
+
+1. 使用不可变标签构建并推送两张镜像（`deploy/push-acr.sh` 默认生成“UTC 时间 + Git 短哈希”标签，拒绝 `latest`）。
+2. 在 Sealos 创建独立生产 PostgreSQL 和私有对象存储桶；后端只使用同工作区内网数据库地址。
+3. 用后端镜像创建一次性 Job/initContainer，命令为 `python -m app.db.bootstrap`；等待退出码 0。
+4. 部署后端 Deployment：`AUTO_DB_INIT=false`，存活探针 `/health`，就绪探针 `/ready`，端口 `8000`。
+5. 验证 `/ready` 返回 200 后，再以实际 API HTTPS 地址构建并部署前端，端口 `80`。
+6. 做登录、权限边界、数据库写入、媒体上传/下载和重启后持久性冒烟测试，再切换正式域名。
+
+Sealos 工作负载建议：后端初始 `500m CPU / 512Mi`、前端 `200m CPU / 256Mi`；requests 按 Sealos 资源阶梯分别设为 `50m / 51Mi` 与 `20m / 25Mi`。后端上传入口的 Ingress `proxy-body-size` 不得小于 `MAX_UPLOAD_MB`。
+
 ### 高德地图
 
 前端需在构建镜像时传入（或在 Sealos 构建参数里配置）：
@@ -183,4 +206,7 @@ Pydantic 会读取这些环境变量（与 `.env` 同名）；**无需**在镜�
 - `VITE_AMAP_KEY`
 - `VITE_AMAP_SECURITY_JSCODE`
 
-可将 `frontend/Dockerfile` 中相应 `ARG` / `ENV` 扩展两行后重新构建（或在 CI 里用 `--build-arg` 传入）。
+`frontend/Dockerfile` 已声明相应的 `ARG` / `ENV`。使用 ACR 发布脚本时，复制
+`deploy/.env.acr.example` 为被 Git 忽略的 `deploy/.env.acr`，填写两项并重新构建、推送、部署前端镜像。
+仅在已构建容器的运行环境中添加 `VITE_*` 变量不会改变静态文件。Key 必须是“Web 端（JS API）”类型，
+安全密钥必须与该 Key 属于同一条控制台配置；域名白名单还需覆盖浏览器地址栏中的实际前端域名。

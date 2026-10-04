@@ -5,6 +5,7 @@ export type UserInfo = {
   username: string
   display_name: string
   role: 'admin' | 'fleet_manager' | 'driver' | 'staff' | string
+  workshop_id: number | null
 }
 
 export type LoginResponse = {
@@ -14,19 +15,9 @@ export type LoginResponse = {
   user: UserInfo
 }
 
-export async function startSliderSession(): Promise<{ session_id: string }> {
-  const { data } = await http.post<{ session_id: string }>('/auth/slider/start')
-  return data
-}
-
-export async function completeSliderSession(sessionId: string): Promise<void> {
-  await http.post('/auth/slider/complete', { session_id: sessionId })
-}
-
 export async function login(payload: {
   username: string
   password: string
-  slider_session_id: string
 }): Promise<LoginResponse> {
   const { data } = await http.post<LoginResponse>('/auth/login', payload)
   return data

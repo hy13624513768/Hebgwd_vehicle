@@ -1,4 +1,4 @@
-"""系统账号分级（存于 sys_user.role）。"""
+"""系统账号分级（存于 users.role）。"""
 
 from __future__ import annotations
 

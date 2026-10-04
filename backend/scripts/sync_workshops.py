@@ -12,13 +12,14 @@ if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
 from app.db.base import Base
-from app.db.migrate import run_runtime_migrations
+from app.db.migrate import run_pre_create_migrations, run_runtime_migrations
 from app.db.session import SessionLocal, engine
 from app import models  # noqa: F401
 from app.services.workshop_service import ensure_canonical_workshop_master
 
 
 def main() -> None:
+    run_pre_create_migrations()
     Base.metadata.create_all(bind=engine)
     run_runtime_migrations()
     db = SessionLocal()

@@ -42,6 +42,7 @@ export function usePermissions() {
   const isStaff = computed(() => role.value === 'staff')
 
   const canManageFleet = computed(() => FLEET_MANAGEMENT_ROLES.has(role.value))
+  const canEditVehicles = computed(() => ACCOUNT_ADMIN_ROLES.has(role.value))
   const canExportReports = computed(() => FLEET_MANAGEMENT_ROLES.has(role.value))
   const canManageAccounts = computed(() => ACCOUNT_ADMIN_ROLES.has(role.value))
   /** 驾驶员档案增删改（段级/车间管理员等车队管理角色，不含仅账户管理员） */
@@ -56,6 +57,7 @@ export function usePermissions() {
     isDriver,
     isStaff,
     canManageFleet,
+    canEditVehicles,
     canExportReports,
     canManageAccounts,
     canEditDriverRecords,

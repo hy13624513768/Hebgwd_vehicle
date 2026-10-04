@@ -10,7 +10,7 @@ from app.db.base import Base
 class Vehicle(Base):
     """车辆档案"""
 
-    __tablename__ = "bus_vehicle"
+    __tablename__ = "vehicles"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     plate_number: Mapped[str] = mapped_column(String(32), unique=True, index=True, nullable=False)
@@ -25,7 +25,7 @@ class Vehicle(Base):
 
     org_unit: Mapped[str] = mapped_column(String(128), default="", nullable=False)  # 使用单位（与车间主表 name 同步）
     workshop_id: Mapped[int | None] = mapped_column(
-        ForeignKey("bus_workshop.id"), nullable=True, index=True
+        ForeignKey("workshops.id"), nullable=True, index=True
     )
     vehicle_class: Mapped[str] = mapped_column(String(64), default="", nullable=False)  # 种类
     vehicle_type_label: Mapped[str] = mapped_column(String(64), default="", nullable=False)  # 车辆类型（Excel）
@@ -36,7 +36,7 @@ class Vehicle(Base):
     purchase_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     registered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    created_by: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id"), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

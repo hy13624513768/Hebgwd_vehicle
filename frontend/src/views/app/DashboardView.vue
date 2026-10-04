@@ -4,36 +4,79 @@
     <div v-if="loading" class="muted">加载中…</div>
 
     <template v-else-if="data">
-      <div class="grid">
-        <RouterLink class="card" :to="{ name: 'vehicles' }">
-          <div class="k">车辆总数</div>
-          <div class="v">{{ data.vehicles_total }}</div>
-        </RouterLink>
-        <RouterLink class="card" :to="{ name: 'drivers' }">
-          <div class="k">驾驶员总数</div>
-          <div class="v">{{ data.drivers_total }}</div>
-        </RouterLink>
-        <RouterLink class="card" :to="{ name: 'trips' }">
-          <div class="k">用车申请</div>
-          <div class="v">{{ data.trip_requests_total }}</div>
-        </RouterLink>
-        <RouterLink class="card warn" :to="{ name: 'trips', query: { status: 'pending' } }">
-          <div class="k">待审批</div>
-          <div class="v">{{ data.pending_trip_requests }}</div>
-        </RouterLink>
-        <RouterLink class="card" :to="{ name: 'maintenance' }">
-          <div class="k">维修保养</div>
-          <div class="v">{{ data.maintenance_records_total }}</div>
-        </RouterLink>
-        <RouterLink class="card" :to="{ name: 'fuel' }">
-          <div class="k">油卡数量</div>
-          <div class="v">{{ data.fuel_cards_total }}</div>
-        </RouterLink>
-        <RouterLink class="card" :to="{ name: 'fuelBills' }">
-          <div class="k">加油笔数</div>
-          <div class="v">{{ data.fuel_records_total }}</div>
-        </RouterLink>
-      </div>
+      <section class="dashboard-overview" aria-label="车辆与驾驶员汇总">
+        <div class="summary-grid">
+          <RouterLink class="summary-card" :to="{ name: 'vehicles' }">
+            <div>
+              <div class="k">车辆总数</div>
+              <div class="summary-card__value">
+                <span class="v">{{ data.vehicles_total }}</span>
+                <span class="summary-card__unit">辆</span>
+              </div>
+            </div>
+          </RouterLink>
+          <RouterLink class="summary-card" :to="{ name: 'drivers' }">
+            <div>
+              <div class="k">驾驶员总数</div>
+              <div class="summary-card__value">
+                <span class="v">{{ data.drivers_total }}</span>
+                <span class="summary-card__unit">人</span>
+              </div>
+            </div>
+          </RouterLink>
+        </div>
+
+        <div class="quick-section">
+          <div class="quick-section__heading">
+            <div>
+              <h2>快捷入口</h2>
+              <p>常用业务一键直达</p>
+            </div>
+          </div>
+          <nav class="quick-grid" aria-label="工作台快捷入口">
+            <RouterLink class="quick-card" :to="{ name: 'fuel' }">
+              <span class="quick-card__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M5 20V5.5A1.5 1.5 0 0 1 6.5 4h7A1.5 1.5 0 0 1 15 5.5V20M4 20h12M8 8h4M15 8.5h1.2l2.3 2.5v6.5a1.5 1.5 0 0 0 3 0V11l-2-2" /></svg>
+              </span>
+              <span class="quick-card__content">
+                <strong>油卡查询</strong>
+                <small>查询余额与油卡信息</small>
+              </span>
+              <span class="quick-card__arrow" aria-hidden="true">›</span>
+            </RouterLink>
+            <RouterLink class="quick-card" :to="{ name: 'locationNavigation' }">
+              <span class="quick-card__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M12 21s6-5.2 6-11a6 6 0 1 0-12 0c0 5.8 6 11 6 11Z" /><circle cx="12" cy="10" r="2.2" /></svg>
+              </span>
+              <span class="quick-card__content">
+                <strong>段内导航</strong>
+                <small>查找段内地点与路线</small>
+              </span>
+              <span class="quick-card__arrow" aria-hidden="true">›</span>
+            </RouterLink>
+            <RouterLink class="quick-card" :to="{ name: 'fuelRecords' }">
+              <span class="quick-card__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M7 3h10v18H7zM9.5 7h5M10 12h4M10 16h4" /></svg>
+              </span>
+              <span class="quick-card__content">
+                <strong>加油记录</strong>
+                <small>录入并查看加油记录</small>
+              </span>
+              <span class="quick-card__arrow" aria-hidden="true">›</span>
+            </RouterLink>
+            <RouterLink class="quick-card" :to="{ name: 'repairRecords' }">
+              <span class="quick-card__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="m14.7 6.3 3-3a5 5 0 0 1-6.4 6.4L5 16l3 3 6.3-6.3a5 5 0 0 0 6.4-6.4l-3 3" /><path d="m4 17-1 1 3 3 1-1" /></svg>
+              </span>
+              <span class="quick-card__content">
+                <strong>维修记录</strong>
+                <small>录入并查看维修记录</small>
+              </span>
+              <span class="quick-card__arrow" aria-hidden="true">›</span>
+            </RouterLink>
+          </nav>
+        </div>
+      </section>
 
       <section class="panel analytics">
         <div class="panel-hd panel-hd--split">
@@ -44,7 +87,7 @@
               <option v-for="y in yearOptions" :key="y" :value="String(y)">{{ y }}年</option>
             </select>
             <select v-model="metric" class="sel">
-              <option value="avg">百公里油耗</option>
+              <option value="avg" :disabled="!fuelKpi.totalMileage">百公里油耗（需里程数据）</option>
               <option value="amount">金额</option>
               <option value="liters">升数</option>
             </select>
@@ -67,7 +110,7 @@
           </div>
           <div class="mini">
             <div class="mk">推算里程</div>
-            <div class="mv">{{ formatNum(fuelKpi.totalMileage) }} km</div>
+            <div class="mv">{{ formatNum(fuelKpi.totalMileage || null) }} km</div>
           </div>
           <div class="mini">
             <div class="mk">平均油耗</div>
@@ -114,7 +157,7 @@
           <div class="chart">
             <div class="ct">车辆对比（{{ metricLabel }}）</div>
             <div class="bars">
-              <div v-for="(item, idx) in vehicleTopList" :key="`${item.year}-${item.vehicle_id}`" class="bar-row">
+              <div v-for="(item, idx) in vehicleTopList" :key="`${item.year}-${item.plate_number}`" class="bar-row">
                 <div class="bar-label">{{ item.plate_number }}</div>
                 <div class="bar-track">
                   <div class="bar-fill" :style="{ width: `${barWidth(item)}%`, ...barFillStyle(idx) }" />
@@ -143,7 +186,7 @@
                 <td>{{ formatNum(q.avg_l_per_100km) }} L/100km</td>
                 <td>{{ formatNum(q.total_liters) }}</td>
                 <td>￥{{ formatNum(q.total_amount) }}</td>
-                <td>{{ formatNum(q.total_mileage) }} km</td>
+                <td>{{ formatNum(q.total_mileage || null) }} km</td>
               </tr>
             </tbody>
           </table>
@@ -174,7 +217,7 @@ const data = ref<DashboardSummary | null>(null)
 const msg = ref('')
 
 const yearFilter = ref('all')
-const metric = ref<'avg' | 'amount' | 'liters'>('avg')
+const metric = ref<'avg' | 'amount' | 'liters'>('amount')
 const topN = ref(8)
 
 function emptyDashboardSummary(): DashboardSummary {
@@ -293,7 +336,7 @@ const fuelKpi = computed(() => {
     totalLiters,
     totalAmount,
     totalMileage,
-    avg100: totalMileage > 0 ? (totalLiters * 100) / totalMileage : 0,
+    avg100: totalMileage > 0 ? (totalLiters * 100) / totalMileage : null,
   }
 })
 
@@ -317,13 +360,13 @@ const trendPoints = computed(() => {
 function metricValue(item: FuelVehicle) {
   if (metric.value === 'amount') return item.total_amount
   if (metric.value === 'liters') return item.total_liters
-  return item.avg_l_per_100km
+  return item.avg_l_per_100km ?? 0
 }
 
 function valueOf(item: FuelMonth) {
   if (metric.value === 'amount') return item.total_amount
   if (metric.value === 'liters') return item.total_liters
-  return item.avg_l_per_100km
+  return item.avg_l_per_100km ?? 0
 }
 
 function pointX(index: number, total: number) {
@@ -336,7 +379,8 @@ function pointY(value: number, max: number) {
   return 190 - (156 * value) / max
 }
 
-function formatNum(v: number) {
+function formatNum(v: number | null) {
+  if (v === null) return '—'
   return Number(v || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 })
 }
 
@@ -348,7 +392,7 @@ function barWidth(item: FuelVehicle) {
   return (metricValue(item) / maxBarValue.value) * 100
 }
 
-/** 与车辆管理页一致的暖色条形渐变 */
+/** 与车辆管理页一致的暖色条形渐变。 */
 const BAR_FILL_GRADIENTS = [
   'linear-gradient(90deg, rgba(201, 100, 66, 0.32) 0%, #c96442 94%)',
   'linear-gradient(90deg, rgba(215, 119, 87, 0.35) 0%, #d97757 94%)',
@@ -422,24 +466,29 @@ onMounted(async () => {
   font-size: 13px;
 }
 
-.grid {
+.dashboard-overview {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
-@media (max-width: 1100px) {
-  .grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-.card {
-  display: block;
+.summary-card {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 124px;
   border: 1px solid var(--cl-border-cream);
-  background: var(--cl-ivory);
-  border-radius: 12px;
-  padding: 16px 16px;
+  background:
+    radial-gradient(circle at 92% 15%, rgba(201, 100, 66, 0.13), transparent 32%),
+    var(--cl-ivory);
+  border-radius: 16px;
+  padding: 20px;
+  text-align: center;
   box-shadow: rgba(0, 0, 0, 0.05) 0px 4px 24px;
   text-decoration: none;
   color: inherit;
@@ -450,34 +499,335 @@ onMounted(async () => {
     transform 0.12s ease;
 }
 
-.card:hover {
+.summary-card::after {
+  position: absolute;
+  right: 22%;
+  bottom: 0;
+  left: 22%;
+  height: 3px;
+  border-radius: 999px 999px 0 0;
+  background: linear-gradient(90deg, transparent, rgba(201, 100, 66, 0.78), transparent);
+  content: '';
+}
+
+.summary-card:hover,
+.quick-card:hover {
   border-color: rgba(201, 100, 66, 0.45);
   box-shadow: rgba(0, 0, 0, 0.08) 0px 6px 28px;
   transform: translateY(-1px);
 }
 
-.card:focus-visible {
+.summary-card:focus-visible,
+.quick-card:focus-visible {
   outline: 2px solid rgba(201, 100, 66, 0.55);
   outline-offset: 2px;
 }
 
-.card.warn {
-  border-color: rgba(201, 100, 66, 0.4);
-  background: rgba(201, 100, 66, 0.08);
+.summary-card__unit {
+  color: var(--cl-olive);
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .k {
-  font-size: 12px;
-  color: var(--cl-olive);
-  letter-spacing: 0.12px;
+  color: var(--cl-charcoal);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.summary-card__value {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 8px;
 }
 
 .v {
-  margin-top: 8px;
-  font-size: 1.65rem;
-  font-weight: 500;
+  color: #a94f32;
+  font-size: 2.45rem;
+  font-weight: 700;
   font-family: Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif;
-  line-height: 1.15;
+  line-height: 1;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.quick-section {
+  border: 1px solid var(--cl-border-cream);
+  border-radius: 16px;
+  padding: 16px;
+  background: var(--cl-ivory);
+  box-shadow: rgba(0, 0, 0, 0.04) 0 4px 20px;
+}
+
+.quick-section__heading {
+  margin-bottom: 12px;
+}
+
+.quick-section__heading h2 {
+  margin: 0;
+  color: var(--cl-charcoal);
+  font-family: Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif;
+  font-size: 1.05rem;
+  font-weight: 500;
+}
+
+.quick-section__heading p {
+  margin: 3px 0 0;
+  color: var(--cl-olive);
+  font-size: 12px;
+}
+
+.quick-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.quick-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 76px;
+  padding: 12px;
+  border: 1px solid var(--cl-border-cream);
+  border-radius: 13px;
+  background: var(--cl-white);
+  color: inherit;
+  text-decoration: none;
+  overflow: hidden;
+  animation: quick-card-enter 0.48s ease-out backwards;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.18s ease,
+    background-color 0.18s ease;
+}
+
+.quick-card:nth-child(2) {
+  animation-delay: 0.06s;
+}
+
+.quick-card:nth-child(3) {
+  animation-delay: 0.12s;
+}
+
+.quick-card:nth-child(4) {
+  animation-delay: 0.18s;
+}
+
+.quick-card::before {
+  position: absolute;
+  top: -70%;
+  bottom: -70%;
+  left: -45%;
+  width: 32%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent);
+  content: '';
+  opacity: 0;
+  pointer-events: none;
+  transform: rotate(18deg);
+  transition:
+    left 0.5s ease,
+    opacity 0.18s ease;
+}
+
+.quick-card:hover::before,
+.quick-card:focus-visible::before {
+  left: 118%;
+  opacity: 1;
+}
+
+.quick-card:hover,
+.quick-card:focus-visible {
+  background: color-mix(in srgb, var(--cl-white) 94%, #f4d8ca);
+  transform: translateY(-4px) scale(1.01);
+}
+
+.quick-card:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.quick-card__icon {
+  --pulse-delay: 0s;
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: rgba(201, 100, 66, 0.1);
+  color: #b95f40;
+  animation: quick-icon-bob 2.8s ease-in-out infinite;
+  transition:
+    color 0.18s ease,
+    background-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.quick-card__icon::before,
+.quick-card__icon::after {
+  position: absolute;
+  z-index: -1;
+  inset: 2px;
+  border: 1.5px solid rgba(185, 95, 64, 0.5);
+  border-radius: inherit;
+  content: '';
+  opacity: 0;
+  pointer-events: none;
+  animation: quick-icon-ripple 2.8s cubic-bezier(0.2, 0.65, 0.35, 1) infinite;
+  animation-delay: var(--pulse-delay);
+}
+
+.quick-card__icon::after {
+  border-color: rgba(201, 100, 66, 0.34);
+  animation-delay: calc(var(--pulse-delay) + 0.85s);
+}
+
+.quick-card:nth-child(2) .quick-card__icon {
+  --pulse-delay: 0.35s;
+  animation-delay: 0.35s;
+}
+
+.quick-card:nth-child(3) .quick-card__icon {
+  --pulse-delay: 0.7s;
+  animation-delay: 0.7s;
+}
+
+.quick-card:nth-child(4) .quick-card__icon {
+  --pulse-delay: 1.05s;
+  animation-delay: 1.05s;
+}
+
+.quick-card:hover .quick-card__icon,
+.quick-card:focus-visible .quick-card__icon {
+  background: rgba(201, 100, 66, 0.16);
+  box-shadow: 0 7px 16px rgba(169, 79, 50, 0.16);
+  color: #a94f32;
+  animation: quick-icon-hop 0.55s ease;
+}
+
+.quick-card__icon svg {
+  position: relative;
+  z-index: 2;
+  width: 23px;
+  height: 23px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.quick-card__content {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+
+.quick-card__content strong,
+.quick-card__content small {
+  display: block;
+}
+
+.quick-card__content strong {
+  color: var(--cl-charcoal);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.quick-card__content small {
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--cl-olive);
+  font-size: 11px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-card__arrow {
+  position: relative;
+  z-index: 1;
+  color: var(--cl-stone);
+  font-size: 23px;
+  line-height: 1;
+  transition:
+    color 0.18s ease,
+    transform 0.18s ease;
+}
+
+.quick-card:hover .quick-card__arrow,
+.quick-card:focus-visible .quick-card__arrow {
+  color: #a94f32;
+  transform: translateX(3px);
+}
+
+@keyframes quick-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes quick-icon-bob {
+  0%,
+  68%,
+  100% {
+    box-shadow: 0 0 0 rgba(169, 79, 50, 0);
+    transform: translateY(0) scale(1);
+  }
+  78% {
+    box-shadow: 0 8px 18px rgba(169, 79, 50, 0.2);
+    transform: translateY(-5px) scale(1.045);
+  }
+  87% {
+    box-shadow: 0 2px 8px rgba(169, 79, 50, 0.1);
+    transform: translateY(0) scale(0.99);
+  }
+  94% {
+    transform: translateY(-2px) scale(1.015);
+  }
+}
+
+@keyframes quick-icon-ripple {
+  0%,
+  48% {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+  56% {
+    opacity: 0.62;
+  }
+  82% {
+    opacity: 0;
+    transform: scale(1.72);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.72);
+  }
+}
+
+@keyframes quick-icon-hop {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  42% {
+    transform: translateY(-7px) scale(1.08);
+  }
+  68% {
+    transform: translateY(1px) scale(0.98);
+  }
 }
 
 .panel {
@@ -662,6 +1012,10 @@ th {
 }
 
 @media (max-width: 1200px) {
+  .quick-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .analytics-kpis {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -672,6 +1026,48 @@ th {
 }
 
 @media (max-width: 760px) {
+  .dashboard-overview {
+    gap: 12px;
+  }
+
+  .summary-grid {
+    gap: 8px;
+  }
+
+  .summary-card {
+    min-height: 102px;
+    padding: 15px;
+    border-radius: 14px;
+  }
+
+  .v {
+    font-size: 2rem;
+  }
+
+  .quick-section {
+    padding: 14px;
+  }
+
+  .quick-grid {
+    gap: 8px;
+  }
+
+  .quick-card {
+    grid-template-columns: 38px minmax(0, 1fr);
+    min-height: 72px;
+    padding: 10px;
+  }
+
+  .quick-card__icon {
+    width: 38px;
+    height: 38px;
+  }
+
+  .quick-card__arrow,
+  .quick-card__content small {
+    display: none;
+  }
+
   .analytics-kpis {
     grid-template-columns: 1fr;
   }
@@ -680,4 +1076,55 @@ th {
     grid-template-columns: 64px minmax(0, 1fr) 88px;
   }
 }
+
+@media (max-width: 390px) {
+  .summary-card {
+    min-height: 94px;
+    padding: 13px;
+  }
+
+  .quick-card {
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 8px;
+    min-height: 66px;
+    padding: 8px;
+  }
+
+  .quick-card__icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+  }
+
+  .quick-card__icon svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .quick-card__content strong {
+    font-size: 13px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quick-card,
+  .quick-card__icon,
+  .quick-card__icon::before,
+  .quick-card__icon::after {
+    animation: none;
+  }
+
+  .quick-card__icon::before,
+  .quick-card__icon::after {
+    display: none;
+  }
+
+  .quick-card,
+  .quick-card::before,
+  .quick-card__icon,
+  .quick-card__arrow {
+    transition-duration: 0.01ms;
+  }
+}
+
 </style>

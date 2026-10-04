@@ -9,7 +9,7 @@ from app.db.base import Base
 class Workshop(Base):
     """车间名称主数据（各业务表通过 workshop_id 从属）。"""
 
-    __tablename__ = "bus_workshop"
+    __tablename__ = "workshops"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)

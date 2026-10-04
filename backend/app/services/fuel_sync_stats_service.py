@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.datetime_utils import as_utc
 from app.models.fuel import FuelBalance, FuelSyncLog
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -16,7 +17,7 @@ SHANGHAI = ZoneInfo("Asia/Shanghai")
 def _today_start_shanghai() -> datetime:
     now = datetime.now(SHANGHAI)
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    return start.astimezone(SHANGHAI)
+    return start.astimezone(timezone.utc)
 
 
 def record_fuel_sync_log(user_id: int | None, *, success: bool = True) -> None:
@@ -46,6 +47,8 @@ def get_fuel_sync_stats(db: Session) -> dict[str, object]:
     last_from_balance = db.scalar(select(func.max(FuelBalance.updated_at)))
     last_synced_at = last_from_log
     if last_from_balance is not None:
-        if last_synced_at is None or last_from_balance > last_synced_at:
+        if last_synced_at is None or as_utc(last_from_balance) > as_utc(last_synced_at):
             last_synced_at = last_from_balance
+    if last_synced_at is not None:
+        last_synced_at = as_utc(last_synced_at)
     return {"today_count": today_count, "last_synced_at": last_synced_at}

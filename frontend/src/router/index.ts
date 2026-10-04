@@ -106,6 +106,12 @@ const router = createRouter({
           component: () => import('@/views/app/FuelView.vue'),
         },
         {
+          path: 'management-analysis',
+          name: 'managementAnalysis',
+          meta: { title: '运营数据分析' },
+          component: () => import('@/views/app/ManagementAnalysisView.vue'),
+        },
+        {
           path: 'fuel-bills',
           name: 'fuelBills',
           meta: { title: '油卡账单' },
@@ -136,18 +142,6 @@ const router = createRouter({
           component: () => import('@/views/app/ReportsView.vue'),
         },
         {
-          path: 'data-vehicle-export',
-          name: 'dataVehicleExport',
-          meta: { title: '车辆档案导出' },
-          component: () => import('@/views/app/DataVehicleExportView.vue'),
-        },
-        {
-          path: 'data-driver-export',
-          name: 'dataDriverExport',
-          meta: { title: '驾驶员档案导出' },
-          component: () => import('@/views/app/DataDriverExportView.vue'),
-        },
-        {
           path: 'data-maintenance-terms',
           name: 'dataMaintenanceTerms',
           meta: { title: '维修词条管理' },
@@ -172,16 +166,18 @@ const router = createRouter({
           component: () => import('@/views/app/DataMaintenanceAnalysisView.vue'),
         },
         {
-          path: 'ai-data-analysis',
-          name: 'aiDataAnalysis',
-          meta: { title: 'AI数据分析' },
+          path: 'ai-analysis',
+          name: 'aiAnalysis',
+          meta: { title: 'AI分析' },
           component: () => import('@/views/app/AiDataAnalysisView.vue'),
         },
         {
+          path: 'ai-data-analysis',
+          redirect: { name: 'aiAnalysis' },
+        },
+        {
           path: 'ai-data-learning',
-          name: 'aiDataLearning',
-          meta: { title: 'AI数据学习' },
-          component: () => import('@/views/app/AiDataLearningView.vue'),
+          redirect: { name: 'aiAnalysis' },
         },
       ],
     },

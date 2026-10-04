@@ -2,10 +2,8 @@
   <div class="fuel-records">
     <header class="fuel-records__head">
       <h1 class="fuel-records__title">加油记录</h1>
-      <p class="fuel-records__desc muted">
-        登记加油信息。车牌选项来自<strong>车辆登记表（bus_vehicle）</strong>；数据库
-        <code>bus_driver</code> 不含车牌字段，故此处与车辆主数据对齐，便于后续与油卡、里程对账。
-      </p>
+      <p class="fuel-records__eyebrow">移动登记 · 自动留痕</p>
+      <p class="fuel-records__desc muted">现场登记车辆、里程与时间，照片将作为加油凭证安全保存。</p>
     </header>
 
     <form class="form" @submit.prevent="onSubmit">
@@ -13,15 +11,17 @@
         {{ formMsg.text }}
       </div>
 
+      <div class="form-section-title"><span>01</span> 基本信息</div>
+
       <div class="field field--row">
-        <label class="field__label">车牌号</label>
+        <label class="field__label">车牌号 <em>必填</em></label>
         <div class="field__body">
           <div v-if="vehiclesLoading" class="muted field__placeholder">正在加载车辆列表…</div>
           <SearchableSelect
             v-else
             v-model="vehicleId"
-            class="field__control"
-            trigger-class="searchable-select--block searchable-select--ledger-form"
+            class="field__control searchable-select--block"
+            trigger-class="searchable-select--ledger-form"
             :options="vehicleOptions"
             allow-empty
             empty-label="请选择车牌"
@@ -31,7 +31,7 @@
       </div>
 
       <div class="field field--row">
-        <label class="field__label" for="fuel-odometer">公里表读数</label>
+        <label class="field__label" for="fuel-odometer">公里表 <em>必填</em></label>
         <div class="field__body">
           <input
             id="fuel-odometer"
@@ -40,8 +40,8 @@
             class="field__input"
             inputmode="numeric"
             autocomplete="off"
-            placeholder="仅可填写数字"
-            maxlength="12"
+            placeholder="公里表读数"
+            maxlength="10"
             @input="odometerDigits = sanitizeOdometerValue(($event.target as HTMLInputElement).value)"
             @keydown="onOdometerKeydown"
             @paste="onOdometerPaste"
@@ -50,7 +50,7 @@
       </div>
 
       <div class="field field--row">
-        <label class="field__label" for="fuel-datetime">加油日期</label>
+        <label class="field__label" for="fuel-datetime">加油日期 <em>必填</em></label>
         <div class="field__body">
           <div class="field__datetime-shell">
             <input
@@ -65,18 +65,21 @@
         </div>
       </div>
 
-      <div class="field field--row field--capture">
-        <span class="field__label" id="fuel-photo-label">加油照片</span>
-        <div class="field__body field__body--capture" aria-labelledby="fuel-photo-label">
+      <div class="form-section-title form-section-title--media"><span>02</span> 加油小票照片</div>
+
+      <div class="field field--row field--capture field--capture-only">
+        <div class="field__body field__body--capture" aria-label="加油小票照片">
         <MobileMediaCapture
           ref="captureRef"
-          panel-aria-label="加油照片拍摄与预览"
-          photo-heading="加油照片"
+          compact
+          panel-aria-label="加油小票照片拍摄与预览"
+          photo-heading=""
           photo-file-base="fuel_record_photo"
+          :photo-input-capture="false"
           :enable-video="false"
           :single-photo="true"
           :show-photo-download="false"
-          photo-hint="每条记录仅可添加一张加油照片。拍照后预览在上方；可点「重新拍照」替换，或「清除照片」后重选。照片仅在当前页面预览，提交后由后续接口上传。"
+          photo-hint="将加油小票放置在里程表上，拍摄时应保证小票内容与公里表清晰可见。"
         />
         </div>
       </div>
@@ -88,9 +91,7 @@
         <button type="button" class="btn btn--ghost" :disabled="submitting" @click="resetForm">重置表单</button>
       </div>
 
-      <p class="form-foot muted">
-        当前为前端表单演示，提交后不会写入数据库；后续可对接 <code>/api/v1/fuel</code> 等接口。
-      </p>
+      <p class="form-foot muted">业务字段写入数据库；照片写入私有媒体存储，仅授权用户可访问。</p>
     </form>
   </div>
 </template>
@@ -98,7 +99,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 
-import { listVehicles } from '@/api/vehicles'
+import { createFuelEntry } from '@/api/fuel'
+import { listAllVehicles } from '@/api/vehicles'
 import type { Vehicle } from '@/api/types'
 import MobileMediaCapture from '@/components/MobileMediaCapture.vue'
 import SearchableSelect, { type SearchableOption } from '@/components/SearchableSelect.vue'
@@ -145,7 +147,7 @@ function defaultLocalDatetime(): string {
 }
 
 function sanitizeOdometerValue(raw: string): string {
-  return raw.replace(/\D/g, '').slice(0, 12)
+  return raw.replace(/\D/g, '').slice(0, 10)
 }
 
 function onOdometerKeydown(e: KeyboardEvent) {
@@ -161,14 +163,14 @@ function onOdometerKeydown(e: KeyboardEvent) {
 
 function onOdometerPaste(e: ClipboardEvent) {
   e.preventDefault()
-  const t = (e.clipboardData?.getData('text') ?? '').replace(/\D/g, '').slice(0, 12)
+  const t = (e.clipboardData?.getData('text') ?? '').replace(/\D/g, '').slice(0, 10)
   odometerDigits.value = t
 }
 
 async function loadVehicles() {
   vehiclesLoading.value = true
   try {
-    vehicles.value = await listVehicles({ limit: 200 })
+    vehicles.value = await listAllVehicles()
   } catch {
     vehicles.value = []
     formMsg.value = { kind: 'err', text: '车辆列表加载失败，请检查网络或稍后重试。' }
@@ -201,25 +203,27 @@ async function onSubmit() {
     return
   }
 
-  const plate = vehicleOptions.value.find((o) => o.id === vehicleId.value)?.label ?? `#${vehicleId.value}`
   const photo = captureRef.value?.getPhotoFile?.() ?? null
 
   submitting.value = true
   try {
-    await new Promise((r) => setTimeout(r, 400))
-    // 后续对接 POST /fuel/records 等：payload 含 vehicle_id, odometer, fueled_at, photo File
-    console.info('[fuel-record demo]', {
-      vehicleId: vehicleId.value,
-      plate,
-      odometer: odo,
-      fueledAtDisplay: fuelDateDisplay.value,
-      fueledAtLocal: fuelDateTimeLocal.value,
-      photo: photo ? { name: photo.name, size: photo.size, type: photo.type } : null,
-    })
+    const fd = new FormData()
+    fd.append('vehicle_id', String(vehicleId.value))
+    fd.append('odometer', odo)
+    fd.append('fueled_at', new Date(fuelDateTimeLocal.value).toISOString())
+    if (photo) fd.append('photo', photo)
+    const record = await createFuelEntry(fd)
     formMsg.value = {
       kind: 'ok',
-      text: `已校验通过（演示）：${plate} · 里程 ${odo} km · ${fuelDateDisplay.value}${photo ? ' · 已选择加油照片' : ' · 未附照片'}`,
+      text: `保存成功：${record.plate_number} · ${record.odometer} km · ${fuelDateDisplay.value}${record.has_photo ? ' · 凭证已上传' : ''}`,
     }
+    vehicleId.value = 0
+    odometerDigits.value = ''
+    fuelDateTimeLocal.value = defaultLocalDatetime()
+    captureRef.value?.clearPhoto()
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { detail?: string } } }
+    formMsg.value = { kind: 'err', text: err.response?.data?.detail || '保存失败，请检查网络后重试。' }
   } finally {
     submitting.value = false
   }
@@ -260,6 +264,14 @@ onMounted(() => {
   font-size: clamp(1.1rem, 2.5vw, 1.35rem);
   font-weight: 600;
   color: var(--cl-charcoal, #2c2b28);
+}
+
+.fuel-records__eyebrow {
+  margin: 0 0 0.25rem;
+  color: var(--cl-terracotta, #c96442);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
 }
 
 .fuel-records__desc {
@@ -312,12 +324,14 @@ onMounted(() => {
 }
 
 .field {
+  min-width: 0;
   margin-bottom: 1.1rem;
 }
 
 .field--row {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   gap: 0.35rem 0;
   align-items: start;
 }
@@ -331,8 +345,44 @@ onMounted(() => {
   line-height: 1.3;
 }
 
+.field__label em {
+  margin-left: 0.2rem;
+  color: var(--cl-terracotta, #c96442);
+  font-size: 0.7rem;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.form-section-title {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0 0 1rem;
+  color: var(--cl-charcoal, #2c2b28);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.form-section-title span {
+  display: inline-grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border-radius: 8px;
+  background: rgba(201, 100, 66, 0.12);
+  color: var(--cl-terracotta, #c96442);
+  font-size: 0.72rem;
+}
+
+.form-section-title--media {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid rgba(142, 132, 109, 0.18);
+}
+
 .field__body {
   min-width: 0;
+  max-width: 100%;
   width: 100%;
 }
 
@@ -368,7 +418,7 @@ onMounted(() => {
 
 .field__input:focus {
   outline: 2px solid var(--cl-terracotta, #c96442);
-  outline-offset: 1px;
+  outline-offset: -2px;
 }
 
 .field__input::-webkit-datetime-edit-fields-wrapper {
@@ -376,27 +426,49 @@ onMounted(() => {
 }
 
 .field__datetime-shell {
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-  border-radius: var(--fuel-control-radius);
-  /* 不用 overflow:hidden，避免部分 WebView 裁剪原生日期弹层 */
-  position: relative;
-}
-
-.field__input--datetime {
   display: block;
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  margin: 0;
+  height: var(--fuel-control-h);
+  min-height: var(--fuel-control-h);
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid var(--cl-border-warm, rgba(142, 132, 109, 0.35));
+  border-radius: var(--fuel-control-radius);
+  background: rgba(255, 255, 255, 0.95);
   position: relative;
+}
+
+.field__datetime-shell:focus-within {
+  outline: 2px solid var(--cl-terracotta, #c96442);
+  outline-offset: -2px;
+}
+
+.field__input--datetime {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
   z-index: 0;
   text-align: start;
   direction: ltr;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
   padding-left: var(--fuel-datetime-pad-x);
   padding-right: var(--fuel-datetime-pad-right-icon);
+}
+
+.field__input--datetime:focus {
+  outline: none;
 }
 
 /* WebKit：压缩分段日期时间的水平占位，减少窄屏横向溢出 */
@@ -446,21 +518,25 @@ onMounted(() => {
   width: 100%;
 }
 
+.field--capture-only .field__body {
+  grid-column: 1 / -1;
+}
+
 .field__body--capture :deep(.panel) {
   margin: 0;
 }
 
 /* 拍照主按钮改为描边样式，避免与下方「保存记录」实心主按钮视觉混淆 */
 .field__body--capture :deep(.actions .btn.primary) {
-  background: rgba(255, 255, 255, 0.98);
-  color: var(--cl-terracotta, #c96442);
-  border: 2px solid var(--cl-terracotta, #c96442);
-  box-shadow: none;
-  font-weight: 600;
+  background: var(--cl-terracotta, #c96442);
+  color: #fff;
+  border: 1px solid var(--cl-terracotta, #c96442);
+  box-shadow: 0 2px 6px rgba(201, 100, 66, 0.18);
+  font-weight: 650;
 }
 
 .field__body--capture :deep(.actions .btn.primary:hover) {
-  background: rgba(201, 100, 66, 0.08);
+  background: #b95739;
 }
 
 .field__body--capture :deep(.actions .btn.ghost) {
@@ -540,9 +616,23 @@ onMounted(() => {
 }
 
 @media (max-width: 559px) {
+  .fuel-records__head {
+    display: none;
+  }
+
+  .fuel-records {
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+  }
+
   .form {
-    padding: 1rem 0.85rem;
-    border-radius: 12px;
+    display: flex;
+    flex: 1 0 auto;
+    flex-direction: column;
+    padding: 1rem;
+    border-radius: 16px;
+    box-shadow: 0 6px 24px rgba(35, 32, 27, 0.055);
   }
 
   .fuel-records {
@@ -553,49 +643,97 @@ onMounted(() => {
     max-width: 100%;
   }
 
+  .form-section-title {
+    gap: 0.45rem;
+    margin-bottom: 0.9rem;
+    font-size: 0.9rem;
+  }
+
+  .form-section-title span {
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: 8px;
+    font-size: 0.72rem;
+  }
+
+  .form-section-title--media {
+    margin-top: 1rem;
+    padding-top: 0.9rem;
+  }
+
+  .field {
+    margin-bottom: 0.9rem;
+  }
+
+  .field__label {
+    font-size: 0.86rem;
+  }
+
+  .field__input {
+    min-height: var(--fuel-control-h);
+    padding: 10px 11px;
+  }
+
+  .field__format {
+    display: none;
+  }
+
   .field__datetime-shell {
-    max-width: min(100%, calc(100vw - 2rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
   }
 
   .field__input--datetime {
+    width: 100%;
     max-width: 100%;
-    /* 略收紧字距，部分机型仍会在 16px 下顶破宽度 */
-    letter-spacing: -0.015em;
+    min-width: 0;
+    height: var(--fuel-control-h);
+    box-sizing: border-box;
+    margin: 0;
+    letter-spacing: normal;
+    overflow: hidden;
   }
 
   .field--capture {
-    margin-bottom: 1.35rem;
+    margin-bottom: 0.9rem;
   }
 
   .field__body--capture :deep(.actions) {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.6rem;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
     margin-bottom: 0;
   }
 
   .field__body--capture :deep(.actions .btn) {
-    width: 100%;
-    min-height: 48px;
+    width: auto;
+    min-height: 40px;
   }
 
   .field__body--capture :deep(.actions .btn--link) {
-    width: 100%;
+    width: auto;
   }
 
   .form-actions {
-    flex-direction: column;
-    align-items: stretch;
-    margin-top: 1.5rem;
-    padding-top: 1.25rem;
-    gap: 0.75rem;
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+    margin-top: 0.25rem;
+    padding-top: 1rem;
+    gap: 0.5rem;
+    background: transparent;
   }
 
   .form-actions .btn {
-    width: 100%;
+    width: auto;
     justify-content: center;
-    min-height: 50px;
-    font-size: 1rem;
+    min-height: 46px;
+    padding: 0.5rem 0.7rem;
+    font-size: 0.94rem;
+  }
+
+  .form-foot {
+    display: none;
   }
 }
 
@@ -604,11 +742,11 @@ onMounted(() => {
   .fuel-records {
     --fuel-datetime-pad-x: 6px;
     --fuel-datetime-pad-right-icon: 2rem;
-    --fuel-control-fs: 15px;
+    --fuel-control-fs: 16px;
   }
 
   .field__input--datetime {
-    font-size: 15px;
+    font-size: 16px;
   }
 }
 </style>
@@ -633,6 +771,13 @@ onMounted(() => {
   line-height: 1.25;
   background: rgba(255, 255, 255, 0.95);
   color: var(--cl-charcoal, #2c2b28);
+}
+
+@media (max-width: 559px) {
+  :is(.fuel-records, .repair-records) .searchable-select .searchable-select__trigger.searchable-select--ledger-form {
+    min-height: var(--fuel-control-h, 48px);
+    padding: 10px 11px;
+  }
 }
 
 :is(.fuel-records, .repair-records)

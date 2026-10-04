@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.deps import CurrentUser, DbSession
 from app.core.rbac import FleetUser
+from app.core.data_scope import require_global_management
 from app.data.workshop_canonical import CANONICAL_SET, resolve_canonical_workshop_name
 from app.models.workshop import Workshop
 from app.schemas.workshop import WorkshopCreate, WorkshopListOut, WorkshopOut, WorkshopUpdate
@@ -42,8 +43,9 @@ def get_workshop(db: DbSession, _: CurrentUser, workshop_id: int) -> Workshop:
 
 
 @router.post("", response_model=WorkshopOut, status_code=status.HTTP_201_CREATED)
-def create_workshop(db: DbSession, _: FleetUser, body: WorkshopCreate) -> Workshop:
-    canon = resolve_canonical_workshop_name(body.name.strip())
+def create_workshop(db: DbSession, current: FleetUser, body: WorkshopCreate) -> Workshop:
+    require_global_management(current)
+    canon = resolve_canonical_workshop_name(body.name.strip(), default="")
     if canon not in CANONICAL_SET:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -67,13 +69,14 @@ def create_workshop(db: DbSession, _: FleetUser, body: WorkshopCreate) -> Worksh
 
 
 @router.patch("/{workshop_id}", response_model=WorkshopOut)
-def update_workshop(db: DbSession, _: FleetUser, workshop_id: int, body: WorkshopUpdate) -> Workshop:
+def update_workshop(db: DbSession, current: FleetUser, workshop_id: int, body: WorkshopUpdate) -> Workshop:
     row = db.get(Workshop, workshop_id)
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="车间不存在")
+    require_global_management(current)
     data = body.model_dump(exclude_unset=True)
     if "name" in data and data["name"] is not None:
-        canon = resolve_canonical_workshop_name(str(data["name"]).strip())
+        canon = resolve_canonical_workshop_name(str(data["name"]).strip(), default="")
         if canon not in CANONICAL_SET:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

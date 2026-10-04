@@ -71,7 +71,7 @@ def workshop_admin_account_name(workshop: str) -> str:
 
 def ensure_canonical_workshop_master(db: Session) -> int:
     """
-    将 bus_workshop 重置为 23 个标准车间，并把各业务表字符串与 workshop_id 全部对齐。
+    将 workshops 重置为 23 个标准车间，并把各业务表字符串与 workshop_id 全部对齐。
     """
     id_by_name: dict[str, int] = {}
     for name in CANONICAL_WORKSHOP_NAMES:
@@ -157,7 +157,14 @@ def ensure_canonical_workshop_master(db: Session) -> int:
 
 def sync_workshops_master_and_links(db: Session) -> int:
     """启动时调用：确保总表与业务关联一致。"""
-    return ensure_canonical_workshop_master(db)
+    existing = set(db.scalars(select(Workshop.name)).all())
+    added = 0
+    for name in CANONICAL_WORKSHOP_NAMES:
+        if name not in existing:
+            db.add(Workshop(name=name, sort_order=WORKSHOP_SORT_ORDERS.get(name, 0), is_active=True))
+            added += 1
+    db.commit()
+    return added
 
 
 def _link_user_to_workshop(db: Session, user: User, id_by_name: dict[str, int]) -> None:
@@ -175,23 +182,23 @@ def _link_user_to_workshop(db: Session, user: User, id_by_name: dict[str, int]) 
 
 
 def apply_workshop_name_to_vehicle(db: Session, vehicle: Vehicle, org_unit: str) -> None:
-    canon = resolve_canonical_workshop_name(org_unit)
-    ws = get_or_create_workshop(db, canon)
-    vehicle.org_unit = canon
+    canon = resolve_canonical_workshop_name(org_unit, default="")
+    ws = get_workshop_by_name(db, canon) if canon else None
+    vehicle.org_unit = canon or (org_unit or "").strip()
     vehicle.workshop_id = ws.id if ws else None
 
 
 def apply_workshop_name_to_fuel_record(db: Session, record: FuelRecord, workshop: str) -> None:
-    canon = resolve_canonical_workshop_name(workshop)
-    ws = get_or_create_workshop(db, canon)
-    record.workshop = canon
+    canon = resolve_canonical_workshop_name(workshop, default="")
+    ws = get_workshop_by_name(db, canon) if canon else None
+    record.workshop = canon or (workshop or "").strip()
     record.workshop_id = ws.id if ws else None
 
 
 def apply_workshop_name_to_fuel_balance(db: Session, balance: FuelBalance, workshop: str) -> None:
-    canon = resolve_canonical_workshop_name(workshop)
-    ws = get_or_create_workshop(db, canon)
-    balance.workshop = canon
+    canon = resolve_canonical_workshop_name(workshop, default="")
+    ws = get_workshop_by_name(db, canon) if canon else None
+    balance.workshop = canon or (workshop or "").strip()
     balance.workshop_id = ws.id if ws else None
 
 
@@ -232,4 +239,4 @@ def resolve_workshop_filter(db: Session, workshop: str | None) -> str | None:
     """筛选参数中的车间名统一解析为标准名。"""
     if not workshop or not str(workshop).strip():
         return None
-    return resolve_canonical_workshop_name(workshop)
+    return resolve_canonical_workshop_name(workshop, default=str(workshop).strip())

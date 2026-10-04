@@ -6,6 +6,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACK="$ROOT/backend"
 FRONT="$ROOT/frontend"
+PYTHON="$BACK/.venv/bin/python"
+
+if [[ ! -x "$PYTHON" ]]; then
+  PYTHON="$(command -v python3 || true)"
+fi
+
+if [[ -z "$PYTHON" ]]; then
+  echo "未找到 Python。请先安装 Python 3 并创建 backend/.venv。" >&2
+  exit 1
+fi
 
 if [[ ! -f "$BACK/.env" ]]; then
   echo "请先复制 backend/.env.example 为 backend/.env 并填写 DATABASE_URL 等。" >&2
@@ -18,7 +28,7 @@ echo "Sealos 控制台请将公网入口映射到容器 8080；线上前端公�
 echo "若热更新失败，请在 frontend 目录复制 .env.development.local.example 为 .env.development.local"
 echo ""
 
-(cd "$BACK" && exec python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload) &
+(cd "$BACK" && exec "$PYTHON" -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload) &
 UV_PID=$!
 trap 'kill "$UV_PID" 2>/dev/null || true' EXIT
 (cd "$FRONT" && exec npm run dev)

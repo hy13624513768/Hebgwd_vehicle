@@ -78,7 +78,7 @@ function apiBaseUrl(): string {
 
 export function repairFileUrl(recordId: number, storedPath: string | null | undefined): string | null {
   if (!storedPath) return null
-  const name = storedPath.split('/').pop() || storedPath.split('\\').pop()
+  const name = storedPath.split('\\').join('/').split('/').pop()
   if (!name) return null
   return `${apiBaseUrl()}/repair-records/files/${recordId}/${encodeURIComponent(name)}`
 }
@@ -101,7 +101,7 @@ export async function createRepairRecord(form: FormData): Promise<RepairRecord> 
 
 export async function recognizeRepairSettlement(recordId: number): Promise<{ ok: boolean; message: string }> {
   const { data } = await http.post<{ ok: boolean; message: string }>(
-    `/repair-records/${recordId}/recognize-settlement`,
+    `/repair-records/${recordId}/recognize-settlement`, undefined, { timeout: 180000 },
   )
   return data
 }

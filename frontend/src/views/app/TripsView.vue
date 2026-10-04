@@ -1,8 +1,8 @@
 <template>
-  <div>
+  <div class="trips-view">
     <div class="toolbar">
-      <input v-model.trim="q" class="q" type="search" placeholder="搜索用途/申请人/起止地点" @keydown.enter.prevent="reload" />
-      <select v-model="statusFilter" class="sel" @change="reload">
+      <input v-model.trim="q" class="q" type="search" placeholder="搜索用途/申请人/起止地点" @keydown.enter.prevent="reload()" />
+      <select v-model="statusFilter" class="sel" @change="reload()">
         <option value="">全部状态</option>
         <option value="pending">待审批</option>
         <option value="approved">已批准</option>
@@ -12,13 +12,14 @@
         <option value="cancelled">已取消</option>
       </select>
       <button type="button" class="primary" @click="openCreate">新建申请</button>
-      <button type="button" class="ghost" :disabled="loading" @click="reload">刷新</button>
+      <button type="button" class="ghost" :disabled="loading" @click="reload()">刷新</button>
     </div>
 
     <div v-if="msg" class="msg">{{ msg }}</div>
     <div v-if="loading" class="muted">加载中…</div>
 
-    <table v-else class="tbl">
+    <div v-else class="trip-list">
+    <table class="tbl">
       <thead>
         <tr>
           <th>ID</th>
@@ -33,23 +34,29 @@
       </thead>
       <tbody>
         <tr v-for="t in rows" :key="t.id">
-          <td>{{ t.id }}</td>
-          <td class="t">{{ t.purpose }}</td>
-          <td>{{ t.applicant_name }}</td>
-          <td class="t2">{{ t.origin }} → {{ t.destination }}</td>
-          <td class="mono">{{ fmtDateTime(t.start_at) }}<br />{{ fmtDateTime(t.end_at) }}</td>
-          <td><span class="tag">{{ statusText(t.status) }}</span></td>
-          <td class="mono">
+          <td data-label="编号">{{ t.id }}</td>
+          <td class="t" data-label="用途">{{ t.purpose }}</td>
+          <td data-label="申请人">{{ t.applicant_name }}</td>
+          <td class="t2" data-label="行程">{{ t.origin }} → {{ t.destination }}</td>
+          <td class="mono" data-label="时间">{{ fmtDateTime(t.start_at) }}<br />{{ fmtDateTime(t.end_at) }}</td>
+          <td data-label="状态"><span class="tag">{{ statusText(t.status) }}</span></td>
+          <td class="mono" data-label="车辆/驾驶员">
             {{ plateOf(t.vehicle_id) }}<br />
             {{ nameOf(t.driver_id) }}
           </td>
-          <td class="w">
+          <td class="w" data-label="操作">
             <button type="button" class="link" @click="openEdit(t)">办理</button>
             <button v-if="canManageFleet" type="button" class="link danger" @click="onDelete(t)">删除</button>
           </td>
         </tr>
       </tbody>
     </table>
+    <div ref="tripLoadMoreRef" class="trip-scroll-loader">
+      <span v-if="loadingMore">正在加载更多申请…</span>
+      <span v-else-if="hasMore">继续下滑加载</span>
+      <span v-else>已加载全部申请</span>
+    </div>
+    </div>
 
     <AppModal :open="createOpen" title="新建用车申请" @close="createOpen = false">
       <div class="form">
@@ -86,47 +93,42 @@
     <AppModal :open="editOpen" title="办理用车申请" @close="editOpen = false">
       <div class="form">
         <label>状态</label>
-        <select v-model="e.status">
-          <option value="pending">待审批</option>
-          <option value="approved">已批准</option>
-          <option value="rejected">已驳回</option>
-          <option value="in_progress">执行中</option>
-          <option value="completed">已完成</option>
-          <option value="cancelled">已取消</option>
+        <select v-model="e.status" :disabled="isStaff || allowedStatuses.length < 2">
+          <option v-for="s in allowedStatuses" :key="s" :value="s">{{ statusText(s) }}</option>
         </select>
 
         <label>分配车辆</label>
-        <select v-model.number="e.vehicle_id">
+        <select v-model.number="e.vehicle_id" :disabled="!canManageFleet || !canEditDetails">
           <option :value="0">未分配</option>
           <option v-for="v in vehicles" :key="v.id" :value="v.id">{{ v.plate_number }}（{{ v.brand }}{{ v.model }}）</option>
         </select>
 
         <label>分配驾驶员</label>
-        <select v-model.number="e.driver_id">
+        <select v-model.number="e.driver_id" :disabled="!canManageFleet || !canEditDetails">
           <option :value="0">未分配</option>
           <option v-for="d in drivers" :key="d.id" :value="d.id">{{ d.name }}（{{ d.phone }}）</option>
         </select>
 
         <label>用途说明</label>
-        <textarea v-model.trim="e.purpose" rows="3" />
+        <textarea v-model.trim="e.purpose" :disabled="!canEditDetails" rows="3" />
 
         <label>申请人</label>
-        <input v-model.trim="e.applicant_name" />
+        <input v-model.trim="e.applicant_name" :disabled="!canEditDetails" />
 
         <label>出发地</label>
-        <input v-model.trim="e.origin" />
+        <input v-model.trim="e.origin" :disabled="!canEditDetails" />
 
         <label>目的地</label>
-        <input v-model.trim="e.destination" />
+        <input v-model.trim="e.destination" :disabled="!canEditDetails" />
 
         <label>开始时间</label>
-        <input v-model="e.start_local" type="datetime-local" />
+        <input v-model="e.start_local" :disabled="!canEditDetails" type="datetime-local" />
 
         <label>结束时间</label>
-        <input v-model="e.end_local" type="datetime-local" />
+        <input v-model="e.end_local" :disabled="!canEditDetails" type="datetime-local" />
 
         <label>人数</label>
-        <input v-model.number="e.passenger_count" type="number" min="1" max="99" />
+        <input v-model.number="e.passenger_count" :disabled="!canEditDetails" type="number" min="1" max="99" />
 
         <label>备注</label>
         <textarea v-model.trim="e.notes" rows="2" />
@@ -141,7 +143,7 @@
 
 <script setup lang="ts">
 import axios from 'axios'
-import { reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 import * as dapi from '@/api/drivers'
@@ -149,10 +151,13 @@ import * as tapi from '@/api/trips'
 import * as vapi from '@/api/vehicles'
 import AppModal from '@/components/AppModal.vue'
 import { usePermissions } from '@/composables/usePermissions'
+import { useUserStore } from '@/stores/user'
+import { tripTransitions } from '@/lib/tripWorkflow'
 import type { Driver, TripRequest, Vehicle } from '@/api/types'
 import { fmtDateTime, toIsoFromLocal, toLocalInputValue } from '@/utils/format'
 
-const { canManageFleet } = usePermissions()
+const { canManageFleet, isStaff } = usePermissions()
+const user = useUserStore()
 const route = useRoute()
 
 const TRIP_STATUS_QUERY = new Set([
@@ -180,10 +185,28 @@ const drivers = ref<Driver[]>([])
 const q = ref('')
 const statusFilter = ref('')
 const msg = ref('')
+const loadingMore = ref(false)
+const hasMore = ref(true)
+const tripLoadMoreRef = ref<HTMLElement | null>(null)
+const TRIP_BATCH_SIZE = 30
+let tripLoadObserver: IntersectionObserver | null = null
 
 const createOpen = ref(false)
 const editOpen = ref(false)
 const editingId = ref<number | null>(null)
+const editingTrip = computed(() => rows.value.find(t => t.id === editingId.value))
+const canEditDetails = computed(() => {
+  const t = editingTrip.value
+  return !!t && !['completed', 'rejected', 'cancelled'].includes(t.status) &&
+    (canManageFleet.value || (t.created_by === user.profile?.id && t.status === 'pending'))
+})
+const allowedStatuses = computed(() => {
+  const current = editingTrip.value?.status ?? 'pending'
+  if (!canManageFleet.value && current === 'pending') return [current]
+  const next = tripTransitions[current] ?? []
+  const allowed = canManageFleet.value ? next : isStaff.value ? [] : next.filter(s => ['in_progress', 'completed', 'cancelled'].includes(s))
+  return [current, ...allowed]
+})
 
 const c = reactive({
   purpose: '',
@@ -232,23 +255,49 @@ function nameOf(id: number | null) {
   return drivers.value.find((x) => x.id === id)?.name || `#${id}`
 }
 
-async function reload() {
-  loading.value = true
+async function reload(append = false) {
+  if (append) loadingMore.value = true
+  else loading.value = true
   msg.value = ''
   try {
-    const [ts, vs, ds] = await Promise.all([
-      tapi.listTrips({ q: q.value || undefined, status: statusFilter.value || undefined, limit: 200 }),
-      vapi.listVehicles({ limit: 200 }),
-      dapi.listDrivers({ limit: 200 }),
-    ])
-    rows.value = ts
-    vehicles.value = vs
-    drivers.value = ds.items
+    const ts = await tapi.listTrips({
+      q: q.value || undefined,
+      status: statusFilter.value || undefined,
+      skip: append ? rows.value.length : 0,
+      limit: TRIP_BATCH_SIZE,
+    })
+    rows.value = append ? [...rows.value, ...ts] : ts
+    hasMore.value = ts.length >= TRIP_BATCH_SIZE
+    if (!append) {
+      const [vs, ds] = await Promise.all([vapi.listAllVehicles(), dapi.listDrivers({ limit: 200 })])
+      vehicles.value = vs
+      drivers.value = ds.items
+    }
   } catch {
-    msg.value = '加载数据失败'
+    msg.value = append ? '加载更多申请失败，请继续下滑重试' : '加载数据失败'
   } finally {
-    loading.value = false
+    if (append) loadingMore.value = false
+    else loading.value = false
+    await nextTick()
+    setupTripLoadObserver()
   }
+}
+
+function setupTripLoadObserver() {
+  tripLoadObserver?.disconnect()
+  tripLoadObserver = null
+  if (typeof IntersectionObserver === 'undefined') return
+  const target = tripLoadMoreRef.value
+  if (!target) return
+  tripLoadObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting) && hasMore.value && !loading.value && !loadingMore.value) {
+        void reload(true)
+      }
+    },
+    { rootMargin: '120px 0px' },
+  )
+  tripLoadObserver.observe(target)
 }
 
 function openCreate() {
@@ -310,19 +359,21 @@ async function saveEdit() {
   saving.value = true
   msg.value = ''
   try {
-    await tapi.updateTrip(editingId.value, {
-      purpose: e.purpose,
-      applicant_name: e.applicant_name,
-      origin: e.origin,
-      destination: e.destination,
-      start_at: toIsoFromLocal(e.start_local),
-      end_at: toIsoFromLocal(e.end_local),
-      passenger_count: e.passenger_count,
-      status: e.status,
-      vehicle_id: e.vehicle_id || null,
-      driver_id: e.driver_id || null,
-      notes: e.notes || null,
-    })
+    const payload: Record<string, unknown> = { notes: e.notes || null }
+    if (canEditDetails.value) {
+      Object.assign(payload, {
+        purpose: e.purpose, applicant_name: e.applicant_name, origin: e.origin, destination: e.destination,
+        start_at: toIsoFromLocal(e.start_local), end_at: toIsoFromLocal(e.end_local),
+        passenger_count: e.passenger_count,
+      })
+      if (canManageFleet.value) Object.assign(payload, { vehicle_id: e.vehicle_id || null, driver_id: e.driver_id || null })
+    }
+    // 驾驶员办理只发送后端允许的字段；状态未变化时不重复提交。
+    if (!canManageFleet.value && !isStaff.value && editingTrip.value?.status !== 'pending') {
+      for (const key of Object.keys(payload)) if (key !== 'notes') delete payload[key]
+    }
+    if (e.status !== editingTrip.value?.status) payload.status = e.status
+    await tapi.updateTrip(editingId.value, payload)
     editOpen.value = false
     await reload()
   } catch (err) {
@@ -351,9 +402,28 @@ watch(
   },
   { immediate: true },
 )
+
+onMounted(setupTripLoadObserver)
+
+onBeforeUnmount(() => tripLoadObserver?.disconnect())
 </script>
 
 <style scoped>
+.trips-view {
+  min-width: 0;
+}
+
+.trip-list {
+  min-width: 0;
+}
+
+.trip-scroll-loader {
+  padding: 10px 12px;
+  text-align: center;
+  color: var(--cl-olive);
+  font-size: 12px;
+}
+
 .toolbar {
   display: flex;
   gap: 10px;
@@ -506,5 +576,133 @@ textarea {
 
 textarea {
   resize: vertical;
+}
+
+@media (max-width: 768px) {
+  .trips-view {
+    display: flex;
+    height: calc(100dvh - 80px);
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .toolbar {
+    display: grid;
+    flex: 0 0 auto;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 6px;
+    margin-bottom: 7px;
+  }
+
+  .q {
+    grid-column: 1 / -1;
+    min-width: 0;
+  }
+
+  .q,
+  .sel,
+  .primary,
+  .ghost {
+    width: 100%;
+    min-width: 0;
+    min-height: 38px;
+    padding: 6px 8px;
+    border-radius: 9px;
+    font-size: 16px;
+  }
+
+  .primary,
+  .ghost {
+    font-size: 12px;
+  }
+
+  .msg {
+    flex: 0 0 auto;
+    margin-bottom: 6px;
+  }
+
+  .trip-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    border: 1px solid var(--cl-border-cream);
+    border-radius: 11px;
+    background: var(--cl-white);
+  }
+
+  .tbl,
+  .tbl tbody,
+  .tbl tr,
+  .tbl td {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .tbl {
+    border: 0;
+    border-radius: 0;
+  }
+
+  .tbl thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+  }
+
+  .tbl tr {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--cl-border-cream);
+  }
+
+  .tbl tr:nth-child(even) {
+    background: #fcfaf6;
+  }
+
+  .tbl td {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 8px;
+    padding: 3px 0;
+    border: 0;
+    font-size: 12px;
+  }
+
+  .tbl td::before {
+    content: attr(data-label);
+    color: var(--cl-olive);
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .tbl .w {
+    width: 100%;
+    white-space: normal;
+  }
+
+  .link {
+    min-height: 30px;
+    margin-right: 8px;
+    padding: 4px 7px;
+    border: 1px solid var(--cl-border-cream);
+    border-radius: 8px;
+  }
+
+  .form {
+    grid-template-columns: 1fr;
+    gap: 5px;
+  }
+
+  .form input,
+  .form select,
+  .form textarea {
+    font-size: 16px;
+  }
 }
 </style>

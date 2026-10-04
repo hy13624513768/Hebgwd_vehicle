@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -12,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.models.repair_record import RepairRecord, RepairSettlement, RepairSettlementLine
 from app.services.glm_vision_service import recognize_settlement_image
 from app.services.term_match_service import _load_term_index, match_line_to_term
+from app.services.media_storage_service import materialize
 
 
 def _parse_date(raw: str | None) -> date | None:
@@ -33,13 +35,9 @@ def _dec(v) -> Decimal:
         return Decimal("0")
 
 
-def recognize_and_save(db: Session, repair: RepairRecord) -> RepairSettlement:
+def _recognize_and_save(db: Session, repair: RepairRecord) -> RepairSettlement:
     if not repair.photo_settlement_path:
         raise ValueError("未上传结算单照片")
-    path = Path(repair.photo_settlement_path)
-    if not path.is_file():
-        raise ValueError("结算单照片文件不存在")
-
     settlement = repair.settlement
     if not settlement:
         settlement = RepairSettlement(repair_record_id=repair.id, recognition_status="processing")
@@ -48,15 +46,21 @@ def recognize_and_save(db: Session, repair: RepairRecord) -> RepairSettlement:
     else:
         settlement.recognition_status = "processing"
         settlement.recognition_error = None
-        for line in list(settlement.lines):
-            db.delete(line)
+        settlement.lines.clear()
         db.flush()
 
     repair.status = "recognizing"
     db.flush()
 
     try:
-        parsed = recognize_settlement_image(path)
+        if repair.photo_settlement_path.startswith("media://"):
+            with materialize(repair.photo_settlement_path) as path:
+                parsed = recognize_settlement_image(path)
+        else:
+            path = Path(repair.photo_settlement_path)
+            if not path.is_file():
+                raise ValueError("结算单照片文件不存在")
+            parsed = recognize_settlement_image(path)
         settlement.raw_json = json.dumps(parsed, ensure_ascii=False)
         settlement.order_no = str(parsed.get("order_no") or repair.repair_order_no or "")
         settlement.plate_number = str(parsed.get("plate_number") or "")
@@ -109,3 +113,25 @@ def recognize_and_save(db: Session, repair: RepairRecord) -> RepairSettlement:
 
     db.flush()
     return settlement
+
+
+def recognize_and_save(db: Session, repair: RepairRecord) -> RepairSettlement:
+    """识别写入用保存点隔离；失败后保留旧明细并持久化失败原因。"""
+    try:
+        with db.begin_nested():
+            result = _recognize_and_save(db, repair)
+        db.expire(repair, ["settlement"])
+        return result
+    except Exception:
+        logging.getLogger(__name__).exception("维修结算单识别失败，record_id=%s", repair.id)
+        db.refresh(repair)
+        settlement = repair.settlement
+        if settlement is None:
+            settlement = RepairSettlement(repair_record_id=repair.id)
+            db.add(settlement)
+        settlement.recognition_status = "failed"
+        settlement.recognition_error = "识别未完成，请检查模型配置和图片后重试"
+        repair.status = "recognize_failed"
+        db.flush()
+        db.expire(repair, ["settlement"])
+        return settlement

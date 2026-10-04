@@ -8,7 +8,7 @@ class FuelYearStat(BaseModel):
     total_liters: float
     total_amount: float
     total_mileage: float
-    avg_l_per_100km: float
+    avg_l_per_100km: float | None
     records: int
 
 
@@ -18,7 +18,7 @@ class FuelMonthStat(BaseModel):
     total_liters: float
     total_amount: float
     total_mileage: float
-    avg_l_per_100km: float
+    avg_l_per_100km: float | None
 
 
 class FuelQuarterStat(BaseModel):
@@ -27,17 +27,17 @@ class FuelQuarterStat(BaseModel):
     total_liters: float
     total_amount: float
     total_mileage: float
-    avg_l_per_100km: float
+    avg_l_per_100km: float | None
 
 
 class FuelVehicleStat(BaseModel):
     year: int
-    vehicle_id: int
+    vehicle_id: int | None
     plate_number: str
     total_liters: float
     total_amount: float
     total_mileage: float
-    avg_l_per_100km: float
+    avg_l_per_100km: float | None
     records: int
 
 
@@ -45,7 +45,7 @@ class FuelOverview(BaseModel):
     total_liters: float
     total_amount: float
     total_mileage: float
-    avg_l_per_100km: float
+    avg_l_per_100km: float | None
     records: int
     valid_segments: int
     invalid_segments: int

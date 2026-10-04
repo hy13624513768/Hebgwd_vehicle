@@ -8,38 +8,39 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.datetime_utils import as_utc
 from app.core.security import create_access_token, verify_password
 from app.models.user import User
 from app.schemas.auth import LoginResponse, UserInfo
-from app.services.slider_service import slider_store
 
 PWD_REGEX = re.compile(r"(?=.*[0-9])(?=.*[A-Z])(?=.*[a-z])(?=.*[^a-zA-Z0-9]).{8,16}")
 MAX_FAILED = 3
 LOCK_MINUTES = 10
 
 
-def authenticate(db: Session, username: str, password: str, slider_session_id: str) -> LoginResponse:
-    if not slider_store.is_ready(slider_session_id):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请拖动滑块验证")
-
+def authenticate(db: Session, username: str, password: str) -> LoginResponse:
     user = db.scalar(select(User).where(User.username == username))
     now = datetime.now(timezone.utc)
 
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名密码错误")
 
-    if user.lock_until and user.lock_until > now:
+    if user.lock_until and as_utc(user.lock_until) > now:
         raise HTTPException(
             status_code=status.HTTP_423_LOCKED,
             detail="您连续输入错误次数过多，您的用户已被锁定十分钟",
         )
+
+    if user.lock_until and as_utc(user.lock_until) <= now:
+        user.failed_attempts = 0
+        user.lock_until = None
 
     if not verify_password(password, user.password_hash):
         user.failed_attempts += 1
         if user.failed_attempts >= MAX_FAILED:
             user.lock_until = now + timedelta(minutes=LOCK_MINUTES)
         db.commit()
-        locked = user.lock_until and user.lock_until > now
+        locked = user.lock_until and as_utc(user.lock_until) > now
         if locked:
             raise HTTPException(
                 status_code=status.HTTP_423_LOCKED,
@@ -55,8 +56,6 @@ def authenticate(db: Session, username: str, password: str, slider_session_id: s
     user.last_login_at = now
     db.commit()
 
-    slider_store.consume(slider_session_id)
-
     token = create_access_token(str(user.id))
     return LoginResponse(
         access_token=token,
@@ -66,6 +65,7 @@ def authenticate(db: Session, username: str, password: str, slider_session_id: s
             username=user.username,
             display_name=user.display_name,
             role=getattr(user, "role", "staff"),
+            workshop_id=getattr(user, "workshop_id", None),
         ),
     )
 

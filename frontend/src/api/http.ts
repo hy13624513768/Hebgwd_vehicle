@@ -13,3 +13,17 @@ http.interceptors.request.use((config) => {
   }
   return config
 })
+
+http.interceptors.response.use(
+  response => response,
+  error => {
+    const isLogin = String(error.config?.url ?? '').includes('/auth/login')
+    if (error.response?.status === 401 && !isLogin) {
+      localStorage.removeItem('access_token')
+      if (window.location.pathname !== '/login') {
+        window.location.replace('/login?redirect=' + encodeURIComponent(window.location.pathname + window.location.search))
+      }
+    }
+    return Promise.reject(error)
+  },
+)

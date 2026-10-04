@@ -1,6 +1,9 @@
 .pg_test_data/
 backend/exports/
 backend/uploads/
+backend/data/*.db*
+.local-run/
+.sealos/
 
 # 密钥与本地环境（示例文件见 .env.example，可提交）
 backend/.env*
@@ -36,4 +39,4 @@ backend/=*
 /*.xlsx
 
 # 推送 ACR 用的本地变量（勿提交）
-.env.acr
+deploy/.env.acr

@@ -38,3 +38,16 @@ export async function updateVehicle(id: number, payload: Record<string, unknown>
 export async function deleteVehicle(id: number): Promise<void> {
   await http.delete(`/vehicles/${id}`)
 }
+
+/** 现有车辆统计页需要完整数据；逐页获取，避免只统计前 200 辆。 */
+export async function listAllVehicles(): Promise<Vehicle[]> {
+  const items: Vehicle[] = []
+  const seen = new Set<number>()
+  for (let skip = 0; ; skip += 200) {
+    const batch = await listVehicles({ skip, limit: 200 })
+    for (const vehicle of batch) {
+      if (!seen.has(vehicle.id)) { seen.add(vehicle.id); items.push(vehicle) }
+    }
+    if (batch.length < 200) return items
+  }
+}

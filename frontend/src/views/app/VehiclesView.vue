@@ -8,14 +8,46 @@
         placeholder="车牌、单位、种类、类型、品牌等（支持正则；空格为多关键字同时匹配）"
         @keydown.enter.prevent="reload"
       />
-      <button v-if="canManageFleet" type="button" class="primary" @click="openCreate">新增车辆</button>
-      <button type="button" class="ghost" :disabled="loading" @click="reload">刷新</button>
+      <button
+        type="button"
+        class="ghost toolbar__mobile-filter"
+        :class="{ 'is-active': mobileFiltersOpen }"
+        :aria-expanded="mobileFiltersOpen"
+        aria-controls="vehicle-mobile-filters"
+        @click="mobileFiltersOpen = !mobileFiltersOpen"
+      >
+        <span class="toolbar__mobile-filter-label">
+          {{ mobileFiltersOpen ? '收起筛选' : `筛选视图${activeFilterCount ? ` · ${activeFilterCount}` : ''}` }}
+        </span>
+        <span class="toolbar__mobile-filter-chevron" aria-hidden="true">{{ mobileFiltersOpen ? '▲' : '▼' }}</span>
+      </button>
+      <button
+        type="button"
+        class="ghost toolbar__analysis-toggle"
+        @click="openManagementAnalysis"
+      >
+        <span>数据分析</span>
+        <span aria-hidden="true">→</span>
+      </button>
+      <button v-if="canEditVehicles" type="button" class="primary toolbar__btn-new" @click="openCreate">新增车辆</button>
+      <button type="button" class="ghost toolbar__btn-refresh" :disabled="loading" @click="reload">刷新</button>
     </div>
+
+    <p class="vehicles-mobile-summary">共 {{ filteredRows.length }} 台</p>
 
     <div v-if="msg" class="msg">{{ msg }}</div>
     <div v-if="loading" class="muted">加载中…</div>
 
-    <section v-else class="panel analytics">
+    <section
+      v-else
+      id="vehicle-mobile-filters"
+      class="panel analytics"
+      :class="{
+        'analytics--mobile-open': mobileFiltersOpen || vehicleAnalysisOpen,
+        'analytics--filters-open': mobileFiltersOpen,
+        'analytics--analysis-open': vehicleAnalysisOpen,
+      }"
+    >
       <div class="panel-hd panel-hd--split" :class="{ 'panel-hd--filters-open': orgUnitComboOpen }">
         <div>公务用车数据</div>
         <div class="filters">
@@ -102,6 +134,11 @@
         </div>
       </div>
 
+      <div
+        v-if="vehicleAnalysisOpen"
+        id="vehicle-analysis-content"
+        class="analytics-content"
+      >
       <div class="kpis">
         <div class="mini">
           <div class="mk">车辆总数</div>
@@ -208,7 +245,7 @@
         </article>
 
         <article class="chart chart--wide">
-          <div class="ct">车辆类型标签占比（bus_vehicle.vehicle_type_label） <span class="ct-hint">· 点击筛选表格</span></div>
+          <div class="ct">车辆类型标签占比（vehicles.vehicle_type_label） <span class="ct-hint">· 点击筛选表格</span></div>
           <p class="chart-note">
             与上方车间、品牌、座数、登记年份、车辆类型、状态及搜索筛选一致；指标随「按车辆数 / 按总里程」切换，占比为当前筛选结果内合计的份额。
           </p>
@@ -236,6 +273,7 @@
           </div>
         </article>
       </div>
+      </div>
     </section>
 
     <div v-if="!loading" ref="tblWrapRef" class="tbl-wrap">
@@ -257,7 +295,11 @@
           <tr v-if="filteredRows.length === 0">
             <td colspan="9" class="empty-hint">当前筛选条件下没有车辆，请调整筛选或点击刷新。</td>
           </tr>
-          <tr v-for="v in pagedTableRows" :key="v.id">
+          <template v-for="group in visibleVehicleGroups" :key="`desktop-${group.workshop}`">
+          <tr class="workshop-group-row">
+            <td colspan="9"><strong>{{ group.workshop }}</strong><span>{{ group.items.length }} 台</span></td>
+          </tr>
+          <tr v-for="v in group.items" :key="v.id">
             <td class="t col-unit" :title="v.org_unit || undefined">{{ cell(v.org_unit) }}</td>
             <td class="t col-narrow" :title="v.vehicle_class || undefined">{{ cell(v.vehicle_class) }}</td>
             <td class="strong col-plate">{{ v.plate_number }}</td>
@@ -267,9 +309,17 @@
             <td class="t col-narrow">{{ cell(v.displacement) }}</td>
             <td class="t col-spec" :title="vehicleSpec(v)">{{ vehicleSpec(v) }}</td>
             <td class="w">
-              <button v-if="canManageFleet" type="button" class="link" @click="openEdit(v)">编辑</button>
-              <button v-if="canManageFleet" type="button" class="link danger" @click="onDelete(v)">删除</button>
+              <button type="button" class="link" @click="openDetails(v)">详情</button>
+              <button v-if="canEditVehicles" type="button" class="link" @click="openEdit(v)">编辑</button>
+              <button v-if="canEditVehicles" type="button" class="link danger" @click="onDelete(v)">删除</button>
             </td>
+          </tr>
+          </template>
+          <tr v-if="hasMoreVehicles" ref="vehicleDesktopLoadMoreRef" class="scroll-loader-row">
+            <td colspan="9">向下滑动继续加载 · 已显示 {{ visibleVehicleRows.length }} / {{ filteredRows.length }} 台</td>
+          </tr>
+          <tr v-else-if="filteredRows.length > 0" class="scroll-loader-row scroll-loader-row--done">
+            <td colspan="9">已加载全部 {{ filteredRows.length }} 台车辆</td>
           </tr>
         </tbody>
       </table>
@@ -279,7 +329,9 @@
           当前筛选条件下没有车辆，请调整筛选或点击刷新。
         </p>
         <ul v-else class="vehicle-cards">
-          <li v-for="v in pagedTableRows" :key="`m-${v.id}`" class="vehicle-card">
+          <template v-for="group in visibleVehicleGroups" :key="`mobile-${group.workshop}`">
+          <li class="workshop-group-heading"><strong>{{ group.workshop }}</strong><span>{{ group.items.length }} 台</span></li>
+          <li v-for="v in group.items" :key="`m-${v.id}`" class="vehicle-card">
             <div class="vehicle-card__top">
               <span class="vehicle-card__plate">{{ v.plate_number }}</span>
               <span class="vehicle-card__pill">{{ cell(v.vehicle_class) }}</span>
@@ -307,39 +359,43 @@
               <span class="vehicle-card__k">规格</span>
               <p class="vehicle-card__spec-text">{{ vehicleSpec(v) }}</p>
             </div>
-            <div v-if="canManageFleet" class="vehicle-card__actions">
-              <button type="button" class="vehicle-card__btn" @click="openEdit(v)">编辑</button>
-              <button type="button" class="vehicle-card__btn vehicle-card__btn--danger" @click="onDelete(v)">
+            <div class="vehicle-card__actions">
+              <button type="button" class="vehicle-card__btn" @click="openDetails(v)">查看详情</button>
+              <button v-if="canEditVehicles" type="button" class="vehicle-card__btn" @click="openEdit(v)">编辑</button>
+              <button v-if="canEditVehicles" type="button" class="vehicle-card__btn vehicle-card__btn--danger" @click="onDelete(v)">
                 删除
               </button>
             </div>
           </li>
+          </template>
+          <li v-if="hasMoreVehicles" ref="vehicleMobileLoadMoreRef" class="scroll-loader">
+            向下滑动继续加载 · 已显示 {{ visibleVehicleRows.length }} / {{ filteredRows.length }} 台
+          </li>
+          <li v-else class="scroll-loader scroll-loader--done">已加载全部 {{ filteredRows.length }} 台车辆</li>
         </ul>
       </div>
-
-      <div v-if="filteredRows.length > 0" class="tbl-pager" role="navigation" aria-label="车辆列表分页">
-        <button
-          type="button"
-          class="ghost tbl-pager__btn"
-          :disabled="tablePage <= 1"
-          @click="tablePage = Math.max(1, tablePage - 1)"
-        >
-          上一页
-        </button>
-        <span class="tbl-pager__meta">
-          第 {{ tablePage }} / {{ tableTotalPages }} 页 · 本页 {{ pagedTableRows.length }} 条 · 共
-          {{ filteredRows.length }} 条
-        </span>
-        <button
-          type="button"
-          class="ghost tbl-pager__btn"
-          :disabled="tablePage >= tableTotalPages"
-          @click="tablePage = Math.min(tableTotalPages, tablePage + 1)"
-        >
-          下一页
-        </button>
-      </div>
     </div>
+
+    <AppModal :open="detailOpen" title="车辆详情" @close="detailOpen = false">
+      <dl v-if="detailVehicle" class="vehicle-detail-grid">
+        <div><dt>所属车间</dt><dd>{{ cell(detailVehicle.org_unit) }}</dd></div>
+        <div><dt>车牌号</dt><dd class="vehicle-detail-grid__primary">{{ detailVehicle.plate_number }}</dd></div>
+        <div><dt>种类</dt><dd>{{ cell(detailVehicle.vehicle_class) }}</dd></div>
+        <div><dt>车辆类型</dt><dd>{{ cell(detailVehicle.vehicle_type_label) }}</dd></div>
+        <div class="vehicle-detail-grid__wide"><dt>品牌 / 型号</dt><dd>{{ cell(detailVehicle.brand) }} / {{ cell(detailVehicle.model) }}</dd></div>
+        <div><dt>颜色 / 座位</dt><dd>{{ cell(detailVehicle.color) }} / {{ detailVehicle.seats }} 座</dd></div>
+        <div><dt>排放 / 排量</dt><dd>{{ cell(detailVehicle.emission_std) }} / {{ cell(detailVehicle.displacement) }}</dd></div>
+        <div><dt>登记时间</dt><dd>{{ toDateInputValue(resolveRegisteredAt(detailVehicle)) || '—' }}</dd></div>
+        <div class="vehicle-detail-grid__wide"><dt>VIN</dt><dd class="vehicle-detail-grid__mono">{{ detailVehicle.vin || '—' }}</dd></div>
+        <div><dt>里程</dt><dd>{{ formatNum(detailVehicle.mileage) }} km</dd></div>
+        <div><dt>状态</dt><dd>{{ vehicleStatusLabel(detailVehicle.status) }}</dd></div>
+        <div class="vehicle-detail-grid__wide"><dt>备注</dt><dd>{{ detailVehicle.remarks || '—' }}</dd></div>
+      </dl>
+      <template #footer>
+        <button type="button" class="ghost" @click="detailOpen = false">关闭</button>
+        <button v-if="canEditVehicles && detailVehicle" type="button" class="primary" @click="editFromDetails">编辑车辆</button>
+      </template>
+    </AppModal>
 
     <AppModal :open="modalOpen" :title="modalTitle" @close="modalOpen = false">
       <div class="form form--vehicles">
@@ -410,6 +466,7 @@
 <script setup lang="ts">
 import axios from 'axios'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 
 import * as api from '@/api/vehicles'
 import { fetchWorkshops, type Workshop } from '@/api/workshops'
@@ -418,9 +475,16 @@ import SearchableSelect, { type SearchableOption } from '@/components/Searchable
 import { usePermissions } from '@/composables/usePermissions'
 import type { Vehicle } from '@/api/types'
 
-const { canManageFleet } = usePermissions()
+const { canEditVehicles } = usePermissions()
+const router = useRouter()
 
 const loading = ref(true)
+const mobileFiltersOpen = ref(false)
+const vehicleAnalysisOpen = ref(false)
+
+function openManagementAnalysis() {
+  void router.push({ name: 'managementAnalysis', query: { scope: 'vehicles' } })
+}
 const saving = ref(false)
 const rows = ref<Vehicle[]>([])
 /** 点击条形图后滚动到表格区域 */
@@ -430,8 +494,12 @@ const msg = ref('')
 const statusSlice = ref<'all' | 'active' | 'inactive' | 'repairing'>('all')
 const metricSlice = ref<'count' | 'mileage'>('count')
 
-/** 表格每页条数（仅影响列表 DOM；KPI/图表仍基于完整筛选结果） */
-const TABLE_PAGE_SIZE = 15
+/** 列表逐批显示；KPI/图表仍基于完整筛选结果。 */
+const VEHICLE_BATCH_SIZE = 15
+const visibleVehicleCount = ref(VEHICLE_BATCH_SIZE)
+const vehicleDesktopLoadMoreRef = ref<HTMLElement | null>(null)
+const vehicleMobileLoadMoreRef = ref<HTMLElement | null>(null)
+let vehicleLoadObserver: IntersectionObserver | null = null
 
 /** 下拉中用占位表示「未填写」文本类字段，避免 option value 为空 */
 const EMPTY_OPT = '__empty__'
@@ -486,6 +554,8 @@ function onOrgUnitDocPointerDown(e: MouseEvent) {
 }
 
 const modalOpen = ref(false)
+const detailOpen = ref(false)
+const detailVehicle = ref<Vehicle | null>(null)
 const modalTitle = ref('新增车辆')
 const editingId = ref<number | null>(null)
 const workshopsMaster = ref<Workshop[]>([])
@@ -710,28 +780,69 @@ const filteredRows = computed(() => {
   })
 })
 
-const tablePage = ref(1)
+const visibleVehicleRows = computed(() => filteredRows.value.slice(0, visibleVehicleCount.value))
+const hasMoreVehicles = computed(() => visibleVehicleRows.value.length < filteredRows.value.length)
 
-const tableTotalPages = computed(() =>
-  Math.max(1, Math.ceil(filteredRows.value.length / TABLE_PAGE_SIZE)),
-)
-
-const pagedTableRows = computed(() => {
-  const start = (tablePage.value - 1) * TABLE_PAGE_SIZE
-  return filteredRows.value.slice(start, start + TABLE_PAGE_SIZE)
+const visibleVehicleGroups = computed(() => {
+  const grouped = new Map<string, Vehicle[]>()
+  for (const vehicle of visibleVehicleRows.value) {
+    const workshop = (vehicle.org_unit ?? '').trim() || '未分配车间'
+    const items = grouped.get(workshop) ?? []
+    items.push(vehicle)
+    grouped.set(workshop, items)
+  }
+  return [...grouped.entries()]
+    .sort(([a], [b]) => a.localeCompare(b, 'zh-CN', { sensitivity: 'accent' }))
+    .map(([workshop, items]) => ({ workshop, items }))
 })
 
+const activeFilterCount = computed(() =>
+  [
+    filterOrgUnit.value,
+    filterBrand.value,
+    filterSeats.value,
+    filterYear.value,
+    filterVehicleTypeLabel.value,
+    statusSlice.value,
+  ].filter((value) => value !== 'all').length,
+)
+
 watch([q, statusSlice, filterOrgUnit, filterBrand, filterSeats, filterYear, filterVehicleTypeLabel], () => {
-  tablePage.value = 1
+  visibleVehicleCount.value = VEHICLE_BATCH_SIZE
 })
 
 watch(
   () => filteredRows.value.length,
   () => {
-    const max = Math.max(1, Math.ceil(filteredRows.value.length / TABLE_PAGE_SIZE))
-    if (tablePage.value > max) tablePage.value = max
+    if (visibleVehicleCount.value < VEHICLE_BATCH_SIZE) {
+      visibleVehicleCount.value = VEHICLE_BATCH_SIZE
+    }
   },
 )
+
+function loadMoreVehicles() {
+  if (!hasMoreVehicles.value) return
+  visibleVehicleCount.value = Math.min(
+    visibleVehicleCount.value + VEHICLE_BATCH_SIZE,
+    filteredRows.value.length,
+  )
+}
+
+function observeVehicleLoadTargets() {
+  vehicleLoadObserver?.disconnect()
+  vehicleLoadObserver = null
+  if (typeof IntersectionObserver === 'undefined') return
+  vehicleLoadObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) loadMoreVehicles()
+    },
+    { rootMargin: '320px 0px' },
+  )
+  if (vehicleDesktopLoadMoreRef.value) vehicleLoadObserver.observe(vehicleDesktopLoadMoreRef.value)
+  if (vehicleMobileLoadMoreRef.value) vehicleLoadObserver.observe(vehicleMobileLoadMoreRef.value)
+}
+
+watch([vehicleDesktopLoadMoreRef, vehicleMobileLoadMoreRef], observeVehicleLoadTargets, { flush: 'post' })
 
 watch(rows, () => {
   if (filterOrgUnit.value !== 'all' && !orgUnitFilterOptions.value.includes(filterOrgUnit.value)) {
@@ -859,7 +970,7 @@ const yearFilterOptions = computed(() => {
   })
 })
 
-/** 按登记年份条形图：直接遍历 filteredRows，依据 bus_vehicle.registered_at（及 camelCase 兼容） */
+/** 按登记年份条形图：直接遍历 filteredRows，依据 vehicles.registered_at（及 camelCase 兼容） */
 const registrationYearChart = computed((): StatItem[] => {
   const map = new Map<string, number>()
   for (const v of filteredRows.value) {
@@ -1004,7 +1115,7 @@ async function reload() {
   loading.value = true
   msg.value = ''
   try {
-    rows.value = await api.listVehicles({ limit: 200 })
+    rows.value = await api.listAllVehicles()
   } catch {
     msg.value = '加载车辆列表失败'
   } finally {
@@ -1035,6 +1146,7 @@ function resetForm() {
 }
 
 function openCreate() {
+  if (!canEditVehicles.value) return
   editingId.value = null
   modalTitle.value = '新增车辆'
   resetForm()
@@ -1053,6 +1165,7 @@ function syncFormWorkshopId(): number | null {
 }
 
 function openEdit(v: Vehicle) {
+  if (!canEditVehicles.value) return
   editingId.value = v.id
   modalTitle.value = '编辑车辆'
   form.plate_number = v.plate_number
@@ -1073,7 +1186,24 @@ function openEdit(v: Vehicle) {
   modalOpen.value = true
 }
 
+function openDetails(v: Vehicle) {
+  detailVehicle.value = v
+  detailOpen.value = true
+}
+
+function editFromDetails() {
+  if (!detailVehicle.value || !canEditVehicles.value) return
+  const vehicle = detailVehicle.value
+  detailOpen.value = false
+  openEdit(vehicle)
+}
+
+function vehicleStatusLabel(status: Vehicle['status']) {
+  return ({ active: '在役', inactive: '停用', repairing: '维修中' } as const)[status] ?? status
+}
+
 async function save() {
+  if (!canEditVehicles.value) return
   saving.value = true
   msg.value = ''
   try {
@@ -1132,6 +1262,7 @@ async function save() {
 }
 
 async function onDelete(v: Vehicle) {
+  if (!canEditVehicles.value) return
   if (!confirm(`确定删除车辆 ${v.plate_number} ？`)) return
   msg.value = ''
   try {
@@ -1152,6 +1283,7 @@ onMounted(async () => {
   document.addEventListener('pointerdown', onOrgUnitDocPointerDown, true)
 })
 onUnmounted(() => {
+  vehicleLoadObserver?.disconnect()
   document.removeEventListener('pointerdown', onOrgUnitDocPointerDown, true)
 })
 </script>
@@ -1162,6 +1294,11 @@ onUnmounted(() => {
   max-width: 100%;
   min-width: 0;
   box-sizing: border-box;
+}
+
+.toolbar__mobile-filter,
+.vehicles-mobile-summary {
+  display: none;
 }
 
 .toolbar {
@@ -1175,6 +1312,7 @@ onUnmounted(() => {
 .q {
   flex: 1;
   min-width: 220px;
+  box-sizing: border-box;
   padding: 10px 12px;
   border-radius: 10px;
   border: 1px solid var(--cl-ring-warm);
@@ -1209,6 +1347,7 @@ onUnmounted(() => {
   background: var(--cl-brand);
   color: var(--cl-ivory);
   font-weight: 800;
+  box-sizing: border-box;
 }
 
 .ghost {
@@ -1218,6 +1357,7 @@ onUnmounted(() => {
   color: var(--cl-near-black);
   border-radius: 10px;
   padding: 10px 12px;
+  box-sizing: border-box;
 }
 
 .msg {
@@ -1275,12 +1415,19 @@ onUnmounted(() => {
   flex-wrap: nowrap;
   flex: 1;
   min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   justify-content: flex-end;
   overflow-x: auto;
   overflow-y: visible;
   -webkit-overflow-scrolling: touch;
-  padding-bottom: 4px;
+  padding: 6px;
   scrollbar-gutter: stable;
+  border: 1px solid rgba(201, 100, 66, 0.14);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 96% 0%, rgba(201, 100, 66, 0.13), transparent 42%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(239, 232, 215, 0.55));
 }
 
 .filters::-webkit-scrollbar {
@@ -1296,6 +1443,7 @@ onUnmounted(() => {
   flex-shrink: 0;
   min-width: 118px;
   max-width: 200px;
+  box-sizing: border-box;
   border: 1px solid var(--cl-border-cream);
   background: var(--cl-white);
   border-radius: 10px;
@@ -1308,6 +1456,7 @@ onUnmounted(() => {
   flex-shrink: 0;
   min-width: 118px;
   max-width: 200px;
+  box-sizing: border-box;
 }
 
 .sel-combo__btn {
@@ -1353,6 +1502,7 @@ onUnmounted(() => {
   z-index: 50;
   min-width: 240px;
   max-width: min(380px, 92vw);
+  box-sizing: border-box;
   padding: 8px;
   border: 1px solid var(--cl-border-cream);
   border-radius: 10px;
@@ -1622,6 +1772,41 @@ button.bar-row:focus-visible {
   min-width: 0;
 }
 
+.analytics-content {
+  min-width: 0;
+}
+
+.toolbar__analysis-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+
+.toolbar__analysis-toggle.is-active {
+  border-color: var(--cl-brand);
+  color: var(--cl-brand);
+  background: rgba(201, 100, 66, 0.07);
+}
+
+.scroll-loader-row td,
+.scroll-loader {
+  padding: 14px 12px;
+  color: var(--cl-olive);
+  background: var(--cl-ivory);
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: center;
+  list-style: none;
+}
+
+.scroll-loader-row--done td,
+.scroll-loader--done {
+  color: var(--cl-stone);
+  background: transparent;
+}
+
 .tbl-pager {
   display: flex;
   flex-wrap: wrap;
@@ -1758,7 +1943,7 @@ button.bar-row:focus-visible {
 
 .vehicle-card__actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
   gap: 10px;
   margin-top: 14px;
   padding-top: 12px;
@@ -1801,6 +1986,81 @@ th {
   color: var(--cl-olive);
   font-weight: 800;
   background: var(--cl-warm-sand);
+}
+
+.workshop-group-row td {
+  padding: 9px 12px;
+  border-bottom-color: rgba(201, 100, 66, 0.2);
+  background: linear-gradient(90deg, rgba(201, 100, 66, 0.15), rgba(239, 232, 215, 0.52) 62%, transparent);
+  color: var(--cl-near-black);
+}
+
+.workshop-group-row strong,
+.workshop-group-heading strong {
+  font-size: 14px;
+  letter-spacing: 0.02em;
+}
+
+.workshop-group-row span,
+.workshop-group-heading span {
+  margin-left: 10px;
+  color: var(--cl-olive);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.workshop-group-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(201, 100, 66, 0.18);
+  background: linear-gradient(100deg, #f4e8de, #f5f1e8 68%, #fff);
+  color: var(--cl-near-black);
+}
+
+.vehicle-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.vehicle-detail-grid > div {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--cl-border-cream);
+  border-radius: 12px;
+  background: linear-gradient(145deg, var(--cl-white), rgba(239, 232, 215, 0.42));
+}
+
+.vehicle-detail-grid dt {
+  margin-bottom: 5px;
+  color: var(--cl-olive);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.vehicle-detail-grid dd {
+  margin: 0;
+  color: var(--cl-near-black);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.vehicle-detail-grid__primary {
+  color: var(--cl-coral) !important;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.vehicle-detail-grid__mono {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.vehicle-detail-grid__wide {
+  grid-column: 1 / -1;
 }
 
 .strong {
@@ -1947,7 +2207,7 @@ textarea {
     overflow-x: visible;
     overflow-y: visible;
     align-items: stretch;
-    padding-bottom: 0;
+    padding: 7px;
     scrollbar-gutter: auto;
     -webkit-overflow-scrolling: auto;
   }
@@ -2050,6 +2310,285 @@ textarea {
   .form--vehicles select,
   .form--vehicles textarea {
     font-size: 16px;
+  }
+
+  .vehicle-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+  }
+
+  .vehicle-detail-grid__wide {
+    grid-column: 1 / -1;
+  }
+
+  .vehicle-detail-grid > div {
+    padding: 10px;
+  }
+}
+
+@media (max-width: 390px) {
+  .vehicle-detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .vehicle-detail-grid__wide {
+    grid-column: auto;
+  }
+}
+
+/* 与油卡余额页一致：手机端固定控件区，列表在剩余空间内独立滚动。 */
+@media (max-width: 768px) {
+  .vehicles-view {
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .toolbar {
+    flex: 0 0 auto;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    margin-bottom: 5px;
+  }
+
+  .toolbar .q {
+    grid-column: 1 / -1;
+    min-height: 38px;
+    padding: 7px 10px;
+    font-size: 13px;
+    border-radius: 9px;
+  }
+
+  .toolbar__mobile-filter {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    border-color: rgba(201, 100, 66, 0.35);
+    background: linear-gradient(135deg, rgba(201, 100, 66, 0.13), rgba(239, 232, 215, 0.75));
+    color: var(--cl-coral);
+    font-weight: 800;
+  }
+
+  .toolbar__mobile-filter-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .toolbar__mobile-filter-chevron {
+    flex: 0 0 auto;
+    font-size: 0.65rem;
+  }
+
+  .toolbar__mobile-filter.is-active {
+    border-color: var(--cl-brand);
+    color: var(--cl-brand);
+    background: rgba(201, 100, 66, 0.07);
+  }
+
+  .toolbar .primary,
+  .toolbar .ghost {
+    width: 100%;
+    min-height: 36px;
+    padding: 6px 8px;
+    font-size: 12px;
+    border-radius: 9px;
+  }
+
+  .toolbar:not(:has(.toolbar__btn-new)) .toolbar__btn-refresh {
+    grid-column: 1 / -1;
+  }
+
+  .vehicles-mobile-summary {
+    display: block;
+    flex: 0 0 auto;
+    margin: 0 2px 5px;
+    color: var(--cl-olive);
+    font-size: 12px;
+    line-height: 1.25;
+  }
+
+  .panel.analytics {
+    display: none;
+    flex: 0 0 auto;
+    max-height: 36vh;
+    margin: 0 0 6px;
+    border-radius: 11px;
+    overflow-y: auto;
+  }
+
+  .panel.analytics.analytics--mobile-open {
+    display: block;
+  }
+
+  .panel.analytics .panel-hd {
+    padding: 7px;
+    border-bottom: 0;
+  }
+
+  .panel.analytics .panel-hd--split > div:first-child,
+  .panel.analytics:not(.analytics--filters-open) .panel-hd {
+    display: none;
+  }
+
+  .panel.analytics.analytics--analysis-open {
+    max-height: min(62vh, 620px);
+  }
+
+  .panel.analytics .analytics-content {
+    width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+  }
+
+  .panel.analytics .kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 8px;
+    gap: 7px;
+  }
+
+  .panel.analytics .charts {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0 8px 8px;
+    gap: 8px;
+  }
+
+  .panel.analytics .chart,
+  .panel.analytics .chart--wide {
+    grid-column: auto;
+    min-width: 0;
+  }
+
+  .panel.analytics .filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .panel.analytics .sel-combo {
+    grid-column: 1 / -1;
+  }
+
+  .panel.analytics .sel,
+  .panel.analytics .sel-combo__btn {
+    min-height: 36px;
+    padding: 6px 8px;
+    font-size: 13px;
+    border-radius: 8px;
+  }
+
+  .tbl-wrap {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .vehicle-cards-mobile {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .vehicle-cards {
+    width: 100%;
+    min-height: 0;
+    gap: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border: 1px solid var(--cl-border-cream);
+    border-radius: 12px;
+    background: var(--cl-white);
+  }
+
+  .workshop-group-heading {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    flex: 0 0 auto;
+  }
+
+  .vehicle-card {
+    padding: 10px 12px;
+    border: 0;
+    border-bottom: 1px solid var(--cl-border-cream);
+    border-radius: 0;
+    box-shadow: none;
+    background: var(--cl-white);
+  }
+
+  .vehicle-card:last-child {
+    border-bottom: 0;
+  }
+
+  .vehicle-card__top {
+    margin-bottom: 4px;
+  }
+
+  .vehicle-card__plate {
+    font-size: 16px;
+  }
+
+  .vehicle-card__unit {
+    margin-bottom: 6px;
+    font-size: 12px;
+  }
+
+  .vehicle-card__grid {
+    gap: 4px 10px;
+    padding-top: 6px;
+  }
+
+  .vehicle-card__row {
+    flex-direction: row;
+    gap: 5px;
+    font-size: 12px;
+  }
+
+  .vehicle-card__spec {
+    display: none;
+  }
+
+  .vehicle-card__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 7px;
+    padding-top: 7px;
+  }
+
+  .vehicle-card__btn {
+    min-height: 32px;
+    padding: 5px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+  }
+
+  .tbl-pager {
+    flex: 0 0 auto;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 6px;
+    margin-top: 6px;
+    padding: 6px;
+    border-radius: 10px;
+  }
+
+  .tbl-pager__btn {
+    min-width: 0;
+    min-height: 34px;
+    padding: 5px 9px;
+  }
+
+  .tbl-pager__meta {
+    font-size: 11px;
   }
 }
 </style>

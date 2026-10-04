@@ -142,6 +142,7 @@ export async function listFuelBalancesPaged(params: {
   page: number
   page_size: number
   workshop?: string
+  vehicle_no?: string
   total_min?: number
   total_max?: number
   sort_by?: 'card_no' | 'workshop' | 'vehicle_no' | 'amount' | 'reserve_fund' | 'total'
@@ -153,6 +154,28 @@ export async function listFuelBalancesPaged(params: {
 
 export async function listFuelBalanceWorkshops(): Promise<string[]> {
   const { data } = await http.get<string[]>('/fuel/balance-workshops')
+  return data
+}
+
+export type FuelEntry = {
+  id: number
+  vehicle_id: number
+  plate_number: string
+  odometer: number
+  fueled_at: string
+  has_photo: boolean
+  created_by: number
+  created_at: string
+  updated_at: string
+}
+
+export async function createFuelEntry(form: FormData): Promise<FuelEntry> {
+  const { data } = await http.post<FuelEntry>('/fuel/entries', form, { timeout: 180000 })
+  return data
+}
+
+export async function listFuelBalanceVehicles(): Promise<string[]> {
+  const { data } = await http.get<string[]>('/fuel/balance-vehicles')
   return data
 }
 

@@ -1,0 +1,277 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hebgwd-vehicle-api
+  namespace: ns-1ht608x0
+  labels:
+    app.kubernetes.io/name: hebgwd-vehicle
+    app.kubernetes.io/component: api
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hebgwd-vehicle
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hebgwd-vehicle
+        app.kubernetes.io/component: api
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      imagePullSecrets:
+        - name: harbor-registry-cred-hp-ns-1ht608x0
+      initContainers:
+        - name: prepare-kunlun-runtime
+          image: harbor.bja.sealos.run/ns-1ht608x0/hebgwd-vehicle-backend:20260930-142713-c7676b896dca-local
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              cp /kunlun-scripts/balance.py "/app/kunlun/获取油卡余额.py"
+              cp /kunlun-scripts/login.py "/app/kunlun/登录.py"
+              cp /kunlun-seed/config.json /app/kunlun/config.json
+              cp /kunlun-seed/token.json /app/kunlun/token.json
+              # Secret 投影文件默认为只读；登录刷新后必须允许 API 用户原子覆写 token。
+              chmod 0600 /app/kunlun/token.json
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: kunlun-scripts
+              mountPath: /kunlun-scripts
+              readOnly: true
+            - name: kunlun-seed
+              mountPath: /kunlun-seed
+              readOnly: true
+            - name: kunlun-runtime
+              mountPath: /app/kunlun
+        - name: database-bootstrap
+          image: harbor.bja.sealos.run/ns-1ht608x0/hebgwd-vehicle-backend:20260930-142713-c7676b896dca-local
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "app.db.bootstrap"]
+          envFrom:
+            - secretRef:
+                name: hebgwd-vehicle-production
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      containers:
+        - name: api
+          image: harbor.bja.sealos.run/ns-1ht608x0/hebgwd-vehicle-backend:20260930-142713-c7676b896dca-local
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: hebgwd-vehicle-production
+          ports:
+            - name: http
+              containerPort: 8000
+          startupProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: kunlun-runtime
+              mountPath: /app/kunlun
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: kunlun-runtime
+          emptyDir: {}
+        - name: kunlun-scripts
+          configMap:
+            name: hebgwd-kunlun-scripts
+            defaultMode: 0444
+        - name: kunlun-seed
+          secret:
+            secretName: hebgwd-kunlun-runtime-seed
+            defaultMode: 0440
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hebgwd-vehicle-api
+  namespace: ns-1ht608x0
+  labels:
+    app.kubernetes.io/name: hebgwd-vehicle
+    app.kubernetes.io/component: api
+spec:
+  selector:
+    app.kubernetes.io/name: hebgwd-vehicle
+    app.kubernetes.io/component: api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hebgwd-vehicle-web
+  namespace: ns-1ht608x0
+  labels:
+    app.kubernetes.io/name: hebgwd-vehicle
+    app.kubernetes.io/component: web
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hebgwd-vehicle
+      app.kubernetes.io/component: web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hebgwd-vehicle
+        app.kubernetes.io/component: web
+    spec:
+      imagePullSecrets:
+        - name: harbor-registry-cred-hp-ns-1ht608x0
+      containers:
+        - name: web
+          image: harbor.bja.sealos.run/ns-1ht608x0/hebgwd-vehicle-frontend:20260930-142713-c7676b896dca-local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hebgwd-vehicle-web
+  namespace: ns-1ht608x0
+  labels:
+    app.kubernetes.io/name: hebgwd-vehicle
+    app.kubernetes.io/component: web
+spec:
+  selector:
+    app.kubernetes.io/name: hebgwd-vehicle
+    app.kubernetes.io/component: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hebgwd-vehicle-web
+  namespace: ns-1ht608x0
+  labels:
+    app.kubernetes.io/name: hebgwd-vehicle
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 55m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+spec:
+  rules:
+    - host: hebgwdvehicle1ht608x0.sealosbja.site
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: hebgwd-vehicle-api
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hebgwd-vehicle-web
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - hebgwdvehicle1ht608x0.sealosbja.site
+      secretName: wildcard-cert

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""将开发库 bus_driver（及依赖的 bus_workshop）同步到生产库。
+"""将开发库 drivers（及依赖的 workshops）同步到生产库。
 
 用法（内网，在 backend 目录）：
-    export DEV_DATABASE_URL="postgresql://postgres:***@bus-system-postgresql.ns-1ht608x0.svc:5432/bus_system_test"
-    export PROD_DATABASE_URL="postgresql://postgres:***@test-db-postgresql.ns-1ht608x0.svc:5432/bus_system_test"
+    export DEV_DATABASE_URL="postgresql://postgres:***@hebgwd-fullstack-db-postgresql.ns-1ht608x0.svc:5432/hebgwd_development"
+    export PROD_DATABASE_URL="postgresql://postgres:***@PRODUCTION_DB_HOST:5432/PRODUCTION_DB_NAME"
     python scripts/migrate_drivers_dev_to_prod.py
 """
 from __future__ import annotations
@@ -25,6 +25,7 @@ from sqlalchemy import create_engine, inspect, text
 from app import models  # noqa: F401
 from app.db.base import Base
 from app.db import migrate as migrate_mod
+from app.db.structure import POSTGRES_SEARCH_PATH_OPTION
 
 DRIVER_COLUMNS = (
     "sort_no",
@@ -48,7 +49,7 @@ DRIVER_COLUMNS = (
 def _require_dsn(name: str) -> str:
     val = os.environ.get(name, "").strip()
     if not val:
-        raise SystemExit(f"请设置环境变量 {name}（postgresql://.../bus_system_test）")
+        raise SystemExit(f"请设置环境变量 {name}（postgresql://.../DATABASE_NAME）")
     return val.replace("postgresql+psycopg2://", "postgresql://", 1)
 
 
@@ -57,12 +58,16 @@ def _sqlalchemy_url(dsn: str) -> str:
 
 
 def ensure_prod_schema(prod_dsn: str) -> None:
-    prod_engine = create_engine(_sqlalchemy_url(prod_dsn))
+    prod_engine = create_engine(
+        _sqlalchemy_url(prod_dsn),
+        connect_args={"options": f"-csearch_path={POSTGRES_SEARCH_PATH_OPTION}"},
+    )
     print("同步生产库表结构…")
-    Base.metadata.create_all(bind=prod_engine)
     old_engine = migrate_mod.engine
     try:
         migrate_mod.engine = prod_engine
+        migrate_mod.run_pre_create_migrations()
+        Base.metadata.create_all(bind=prod_engine)
         migrate_mod.run_runtime_migrations()
     finally:
         migrate_mod.engine = old_engine
@@ -106,46 +111,52 @@ def reset_sequence(conn, table: str) -> None:
 def migrate_drivers(dev_dsn: str, prod_dsn: str) -> None:
     ensure_prod_schema(prod_dsn)
 
-    src = psycopg2.connect(dev_dsn)
-    dst = psycopg2.connect(prod_dsn)
+    options = f"-c search_path={POSTGRES_SEARCH_PATH_OPTION}"
+    src = psycopg2.connect(dev_dsn, options=options)
+    dst = psycopg2.connect(prod_dsn, options=options)
     src.autocommit = False
     dst.autocommit = False
     try:
         with src.cursor() as sc:
-            sc.execute("SELECT COUNT(*) FROM bus_driver")
+            sc.execute("SELECT COUNT(*) FROM drivers")
             dev_n = sc.fetchone()[0]
         print(f"开发库驾驶员 {dev_n} 条，开始同步…")
 
         with dst.cursor() as dc:
-            if inspect(create_engine(_sqlalchemy_url(prod_dsn))).has_table("bus_trip_request"):
-                dc.execute("UPDATE bus_trip_request SET driver_id = NULL WHERE driver_id IS NOT NULL")
-            dc.execute("TRUNCATE bus_driver RESTART IDENTITY CASCADE")
+            check_engine = create_engine(
+                _sqlalchemy_url(prod_dsn),
+                connect_args={"options": f"-csearch_path={POSTGRES_SEARCH_PATH_OPTION}"},
+            )
+            if inspect(check_engine).has_table("trip_requests"):
+                dc.execute("UPDATE trip_requests SET driver_id = NULL WHERE driver_id IS NOT NULL")
+            check_engine.dispose()
+            dc.execute("TRUNCATE drivers RESTART IDENTITY CASCADE")
 
-        ws_n = copy_table_with_ids(src, dst, "bus_workshop")
-        print(f"  ✓ bus_workshop: {ws_n} 行")
+        ws_n = copy_table_with_ids(src, dst, "workshops")
+        print(f"  ✓ workshops: {ws_n} 行")
 
         with src.cursor() as sc:
             cols = ", ".join(DRIVER_COLUMNS)
-            sc.execute(f"SELECT {cols} FROM bus_driver ORDER BY sort_no ASC NULLS LAST, id ASC")
+            sc.execute(f"SELECT {cols} FROM drivers ORDER BY sort_no ASC NULLS LAST, id ASC")
             rows = sc.fetchall()
 
         insert_cols = ", ".join(DRIVER_COLUMNS)
         with dst.cursor() as dc:
             execute_values(
                 dc,
-                f"INSERT INTO bus_driver ({insert_cols}) VALUES %s",
+                f"INSERT INTO drivers ({insert_cols}) VALUES %s",
                 rows,
                 page_size=200,
             )
 
-        reset_sequence(dst, "bus_driver")
+        reset_sequence(dst, "drivers")
         dst.commit()
         src.commit()
 
         with dst.cursor() as dc:
-            dc.execute("SELECT COUNT(*) FROM bus_driver")
+            dc.execute("SELECT COUNT(*) FROM drivers")
             prod_n = dc.fetchone()[0]
-        print(f"\n完成：生产库 bus_driver 现为 {prod_n} 条（开发库 {dev_n} 条）。")
+        print(f"\n完成：生产库 drivers 现为 {prod_n} 条（开发库 {dev_n} 条）。")
     except Exception:
         dst.rollback()
         src.rollback()

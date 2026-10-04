@@ -1,9 +1,10 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from app.core.datetime_utils import shanghai_day_start
 from decimal import Decimal
 from io import BytesIO
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
 from sqlalchemy import and_, case, func, select
@@ -11,7 +12,10 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.deps import CurrentUser, DbSession
 from app.core.rbac import FleetUser
-from app.models.fuel import FuelBalance, FuelCard, FuelRecord
+from app.core.data_scope import scoped, require_vehicle_access, require_workshop_access, require_global_management, validate_workshop
+from app.models.fuel import FuelBalance, FuelCard, FuelEntry, FuelRecord
+from app.models.media_asset import MediaAsset
+from app.models.vehicle import Vehicle
 from app.services.fuel_sync_service import stream_fuel_sync
 from app.services.fuel_sync_stats_service import get_fuel_sync_stats
 from app.services.workshop_service import (
@@ -26,12 +30,14 @@ from app.schemas.fuel import (
     FuelCardCreate,
     FuelCardOut,
     FuelCardUpdate,
+    FuelEntryOut,
     FuelRecordCreate,
     FuelRecordOut,
     FuelRecordPage,
     FuelSyncRequest,
     FuelSyncStatsOut,
 )
+from app.services.media_storage_service import delete_media, download_response, save_upload
 
 router = APIRouter(prefix="/fuel", tags=["fuel"])
 
@@ -60,7 +66,7 @@ def _bucket_stat_cond(bucket: dict):
 
 @router.post("/sync")
 async def sync_fuel_from_platform(current: CurrentUser, body: FuelSyncRequest) -> StreamingResponse:
-    """登录中国石油拉取油卡余额与流水，写入数据库（NDJSON 流式返回进度）。"""
+    """允许所有已登录账号调用本地昆仑司机卡接口刷新余额。"""
     return StreamingResponse(
         stream_fuel_sync(body.date_from, body.date_to, user_id=current.id),
         media_type="application/x-ndjson",
@@ -72,24 +78,41 @@ async def sync_fuel_from_platform(current: CurrentUser, body: FuelSyncRequest) -
 
 
 @router.get("/sync-stats", response_model=FuelSyncStatsOut)
-def fuel_sync_stats(db: DbSession, _: CurrentUser) -> FuelSyncStatsOut:
+def fuel_sync_stats(db: DbSession, current: CurrentUser) -> FuelSyncStatsOut:
     """今日油卡余额同步次数与上次刷新时间。"""
     stats = get_fuel_sync_stats(db)
     return FuelSyncStatsOut(**stats)
 
 
 @router.get("/balance-workshops", response_model=list[str])
-def list_balance_workshops(db: DbSession, _: CurrentUser) -> list[str]:
-    return list_active_workshop_names(db)
+def list_balance_workshops(db: DbSession, current: CurrentUser) -> list[str]:
+    return [name for name in list_active_workshop_names(db) if name.strip() != "留存"]
+
+
+@router.get("/balance-vehicles", response_model=list[str])
+def list_balance_vehicles(db: DbSession, current: CurrentUser) -> list[str]:
+    conds: list = [
+        FuelBalance.vehicle_no != "",
+        func.trim(FuelBalance.workshop) != "留存",
+        func.trim(FuelBalance.vehicle_no) != "留存",
+    ]
+    stmt = (
+        select(FuelBalance.vehicle_no)
+        .where(and_(*conds))
+        .distinct()
+        .order_by(FuelBalance.vehicle_no.asc())
+    )
+    return list(db.scalars(stmt).all())
 
 
 @router.get("/balances", response_model=FuelBalancePage)
 def list_balances(
     db: DbSession,
-    _: CurrentUser,
+    current: CurrentUser,
     page: Annotated[int, Query(ge=1, description="页码，从 1 开始")] = 1,
     page_size: Annotated[int, Query(ge=1, le=100, description="每页条数")] = 15,
     workshop: Annotated[str | None, Query(max_length=128, description="车间名称模糊匹配")] = None,
+    vehicle_no: Annotated[str | None, Query(max_length=64, description="车牌号精确匹配")] = None,
     total_min: Annotated[float | None, Query(description="合计余额下限（含）")] = None,
     total_max: Annotated[float | None, Query(description="合计余额上限（含）")] = None,
     sort_by: Annotated[
@@ -98,12 +121,22 @@ def list_balances(
     ] = "card_no",
     sort_dir: Annotated[Literal["asc", "desc"], Query(description="排序方向")] = "asc",
 ) -> FuelBalancePage:
-    base_conds: list = []
+    # “留存”是内部保留卡。现有数据主要记录在 vehicle_no，兼容旧数据中记录在 workshop 的情况。
+    # 它不参与页面列表、合计和区间统计。
+    base_conds: list = [
+        func.trim(FuelBalance.workshop) != "留存",
+        func.trim(FuelBalance.vehicle_no) != "留存",
+    ]
+    # 油卡余额是全段共享查询数据，所有已登录账号都查看完整列表；
+    # workshop / vehicle_no 仅作为用户主动选择的筛选条件。
     ws = resolve_workshop_filter(db, workshop)
     if ws:
         base_conds.append(FuelBalance.workshop == ws)
+    vehicle = (vehicle_no or "").strip()
+    if vehicle:
+        base_conds.append(FuelBalance.vehicle_no == vehicle)
 
-    # 表格与“共X张/合计”随价格区间变化；区间分布图（buckets）只随车间变化，反映整体分布。
+    # 表格与“共X张/合计”随价格区间变化；区间分布图（buckets）随车间和车牌变化。
     data_conds = list(base_conds)
     if total_min is not None:
         data_conds.append(FuelBalance.total >= total_min)
@@ -173,7 +206,7 @@ def list_balances(
 @router.get("/cards", response_model=list[FuelCardOut])
 def list_cards(
     db: DbSession,
-    _: CurrentUser,
+    current: CurrentUser,
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=200)] = 100,
 ) -> list[FuelCard]:
@@ -182,7 +215,8 @@ def list_cards(
 
 
 @router.post("/cards", response_model=FuelCardOut, status_code=status.HTTP_201_CREATED)
-def create_card(db: DbSession, _: FleetUser, body: FuelCardCreate) -> FuelCard:
+def create_card(db: DbSession, current: FleetUser, body: FuelCardCreate) -> FuelCard:
+    require_global_management(current)
     row = FuelCard(
         card_no=body.card_no.strip(),
         col_c=body.col_c.strip(),
@@ -199,7 +233,8 @@ def create_card(db: DbSession, _: FleetUser, body: FuelCardCreate) -> FuelCard:
 
 
 @router.patch("/cards/{card_id}", response_model=FuelCardOut)
-def update_card(db: DbSession, _: FleetUser, card_id: int, body: FuelCardUpdate) -> FuelCard:
+def update_card(db: DbSession, current: FleetUser, card_id: int, body: FuelCardUpdate) -> FuelCard:
+    require_global_management(current)
     row = db.get(FuelCard, card_id)
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="油卡不存在")
@@ -214,14 +249,15 @@ def update_card(db: DbSession, _: FleetUser, card_id: int, body: FuelCardUpdate)
 
 
 @router.delete("/cards/{card_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_card(db: DbSession, _: FleetUser, card_id: int) -> None:
+def delete_card(db: DbSession, current: FleetUser, card_id: int) -> None:
+    require_global_management(current)
     row = db.get(FuelCard, card_id)
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="油卡不存在")
     card = db.get(FuelCard, card_id)
     if not card:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="油卡不存在")
-    cnt = int(db.scalar(select(func.count()).select_from(FuelRecord).where(FuelRecord.card_asn == card.card_no)) or 0)
+    cnt = int(db.scalar(scoped(select(func.count()).select_from(FuelRecord), FuelRecord, current).where(FuelRecord.card_asn == card.card_no)) or 0)
     if cnt:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="请先删除该油卡下的加油流水")
     db.delete(row)
@@ -231,7 +267,7 @@ def delete_card(db: DbSession, _: FleetUser, card_id: int) -> None:
 @router.get("/records", response_model=FuelRecordPage)
 def list_records(
     db: DbSession,
-    _: CurrentUser,
+    current: CurrentUser,
     page: Annotated[int, Query(ge=1, description="页码，从 1 开始")] = 1,
     page_size: Annotated[int, Query(ge=1, le=100, description="每页条数")] = 20,
     card_asn: Annotated[str | None, Query(max_length=64, description="卡号（精确匹配）")] = None,
@@ -245,8 +281,8 @@ def list_records(
     sort_dir: Annotated[Literal["asc", "desc"], Query(description="排序方向")] = "asc",
 ) -> FuelRecordPage:
     conds: list = []
-    cnt_stmt = select(func.count()).select_from(FuelRecord)
-    stmt = select(FuelRecord)
+    cnt_stmt = scoped(select(func.count()).select_from(FuelRecord), FuelRecord, current)
+    stmt = scoped(select(FuelRecord), FuelRecord, current)
     card = (card_asn or "").strip()
     if card:
         conds.append(FuelRecord.card_asn == card)
@@ -254,9 +290,9 @@ def list_records(
     if ws:
         conds.append(FuelRecord.workshop == ws)
     if date_from is not None:
-        conds.append(FuelRecord.occur_time >= datetime.combine(date_from, datetime.min.time()))
+        conds.append(FuelRecord.occur_time >= shanghai_day_start(date_from))
     if date_to is not None:
-        conds.append(FuelRecord.occur_time <= datetime.combine(date_to, datetime.max.time()))
+        conds.append(FuelRecord.occur_time < shanghai_day_start(date_to + timedelta(days=1)))
     if conds:
         w = and_(*conds)
         cnt_stmt = cnt_stmt.where(w)
@@ -293,21 +329,21 @@ def _record_conditions(
     if ws:
         conds.append(FuelRecord.workshop == ws)
     if date_from is not None:
-        conds.append(FuelRecord.occur_time >= datetime.combine(date_from, datetime.min.time()))
+        conds.append(FuelRecord.occur_time >= shanghai_day_start(date_from))
     if date_to is not None:
-        conds.append(FuelRecord.occur_time <= datetime.combine(date_to, datetime.max.time()))
+        conds.append(FuelRecord.occur_time < shanghai_day_start(date_to + timedelta(days=1)))
     return conds
 
 
 @router.get("/record-workshops", response_model=list[str])
-def list_record_workshops(db: DbSession, _: CurrentUser) -> list[str]:
+def list_record_workshops(db: DbSession, current: CurrentUser) -> list[str]:
     return list_active_workshop_names(db)
 
 
 @router.get("/record-cards", response_model=list[str])
-def list_record_cards(db: DbSession, _: CurrentUser) -> list[str]:
+def list_record_cards(db: DbSession, current: CurrentUser) -> list[str]:
     rows = db.execute(
-        select(FuelRecord.card_asn)
+        scoped(select(FuelRecord.card_asn), FuelRecord, current)
         .where(FuelRecord.card_asn != "")
         .distinct()
         .order_by(FuelRecord.card_asn.asc())
@@ -318,14 +354,14 @@ def list_record_cards(db: DbSession, _: CurrentUser) -> list[str]:
 @router.get("/records/export.xlsx")
 def export_records_xlsx(
     db: DbSession,
-    _: CurrentUser,
+    current: CurrentUser,
     card_asn: Annotated[str | None, Query(max_length=64)] = None,
     workshop: Annotated[str | None, Query(max_length=128)] = None,
     date_from: Annotated[date | None, Query(description="交易日期起（含）")] = None,
     date_to: Annotated[date | None, Query(description="交易日期止（含）")] = None,
 ) -> StreamingResponse:
     conds = _record_conditions(db, card_asn, workshop, date_from, date_to)
-    stmt = select(FuelRecord)
+    stmt = scoped(select(FuelRecord), FuelRecord, current)
     if conds:
         stmt = stmt.where(and_(*conds))
     rows = list(db.scalars(stmt.order_by(FuelRecord.id.desc())).all())
@@ -365,8 +401,83 @@ def export_records_xlsx(
     )
 
 
+def _fuel_entry_out(db: DbSession, row: FuelEntry) -> FuelEntryOut:
+    vehicle = db.get(Vehicle, row.vehicle_id)
+    out = FuelEntryOut.model_validate(row)
+    out.plate_number = vehicle.plate_number if vehicle else ""
+    out.has_photo = bool(row.photo_path)
+    return out
+
+
+@router.post("/entries", response_model=FuelEntryOut, status_code=status.HTTP_201_CREATED)
+def create_fuel_entry(
+    db: DbSession,
+    current: CurrentUser,
+    vehicle_id: Annotated[int, Form(ge=1)],
+    odometer: Annotated[int, Form(ge=0, le=2_000_000_000)],
+    fueled_at: Annotated[datetime, Form()],
+    photo: UploadFile | None = File(None),
+) -> FuelEntryOut:
+    """保存移动端人工加油登记；业务字段入库，照片写入配置的私有媒体存储。"""
+    require_vehicle_access(db, current, vehicle_id)
+    if photo and photo.filename and not (photo.content_type or "").lower().startswith("image/"):
+        raise HTTPException(400, "加油凭证只能上传图片")
+
+    row = FuelEntry(
+        vehicle_id=vehicle_id,
+        odometer=odometer,
+        fueled_at=fueled_at,
+        created_by=current.id,
+    )
+    stored = None
+    try:
+        db.add(row)
+        db.flush()
+        if photo and photo.filename:
+            stored = save_upload(photo, prefix=f"fuel/entries/{row.id}")
+            row.photo_path = stored.reference
+            db.add(
+                MediaAsset(
+                    owner_type="fuel_entry",
+                    owner_id=row.id,
+                    kind="fuel_photo",
+                    storage_backend=stored.backend,
+                    bucket=stored.bucket,
+                    object_key=stored.object_key,
+                    original_name=stored.original_name,
+                    content_type=stored.content_type,
+                    size_bytes=stored.size_bytes,
+                    sha256=stored.sha256,
+                    created_by=current.id,
+                )
+            )
+        db.commit()
+        db.refresh(row)
+    except Exception:
+        db.rollback()
+        if stored:
+            try:
+                delete_media(stored)
+            except Exception:
+                pass
+        raise
+    return _fuel_entry_out(db, row)
+
+
+@router.get("/entries/{entry_id}/photo")
+def get_fuel_entry_photo(db: DbSession, current: CurrentUser, entry_id: int):
+    row = db.get(FuelEntry, entry_id)
+    if not row:
+        raise HTTPException(404, "加油记录不存在")
+    require_vehicle_access(db, current, row.vehicle_id)
+    if not row.photo_path:
+        raise HTTPException(404, "该记录没有照片")
+    return download_response(row.photo_path)
+
+
 @router.post("/records", response_model=FuelRecordOut, status_code=status.HTTP_201_CREATED)
-def create_record(db: DbSession, _: FleetUser, body: FuelRecordCreate) -> FuelRecord:
+def create_record(db: DbSession, current: FleetUser, body: FuelRecordCreate) -> FuelRecord:
+    validate_workshop(db, body.workshop_id)
     row = FuelRecord(
         card_asn=body.card_asn.strip(),
         car_no=body.car_no.strip(),
@@ -381,6 +492,10 @@ def create_record(db: DbSession, _: FleetUser, body: FuelRecordCreate) -> FuelRe
     )
     if body.workshop_id is None:
         apply_workshop_name_to_fuel_record(db, row, body.workshop)
+    else:
+        from app.models.workshop import Workshop
+        row.workshop = db.get(Workshop, body.workshop_id).name
+    require_workshop_access(current, row.workshop_id)
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -388,9 +503,10 @@ def create_record(db: DbSession, _: FleetUser, body: FuelRecordCreate) -> FuelRe
 
 
 @router.delete("/records/{record_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_record(db: DbSession, _: FleetUser, record_id: int) -> None:
+def delete_record(db: DbSession, current: FleetUser, record_id: int) -> None:
     row = db.get(FuelRecord, record_id)
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="加油记录不存在")
+    require_workshop_access(current, row.workshop_id)
     db.delete(row)
     db.commit()

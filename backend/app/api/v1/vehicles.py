@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.deps import CurrentUser, DbSession
 from app.core.rbac import FleetUser
+from app.core.data_scope import require_global_management
 from app.models.vehicle import Vehicle
 from app.schemas.vehicle import VehicleCreate, VehicleOut, VehicleUpdate
 from app.services.workshop_service import apply_workshop_name_to_vehicle, get_workshop_by_id
@@ -16,12 +17,12 @@ router = APIRouter(prefix="/vehicles", tags=["vehicles"])
 @router.get("", response_model=list[VehicleOut])
 def list_vehicles(
     db: DbSession,
-    _: CurrentUser,
+    current: CurrentUser,
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=200)] = 100,
     q: Annotated[str | None, Query(max_length=64)] = None,
 ) -> list[Vehicle]:
-    stmt = select(Vehicle).order_by(Vehicle.id.desc()).offset(skip).limit(limit)
+    stmt = select(Vehicle).order_by(Vehicle.org_unit.asc(), Vehicle.plate_number.asc()).offset(skip).limit(limit)
     if q:
         like = f"%{q.strip()}%"
         stmt = stmt.where(
@@ -41,6 +42,7 @@ def list_vehicles(
 
 @router.post("", response_model=VehicleOut, status_code=status.HTTP_201_CREATED)
 def create_vehicle(db: DbSession, current: FleetUser, body: VehicleCreate) -> Vehicle:
+    require_global_management(current)
     row = Vehicle(
         plate_number=body.plate_number.strip(),
         brand=body.brand.strip(),
@@ -79,7 +81,7 @@ def create_vehicle(db: DbSession, current: FleetUser, body: VehicleCreate) -> Ve
 
 
 @router.get("/{vehicle_id}", response_model=VehicleOut)
-def get_vehicle(db: DbSession, _: CurrentUser, vehicle_id: int) -> Vehicle:
+def get_vehicle(db: DbSession, current: CurrentUser, vehicle_id: int) -> Vehicle:
     row = db.get(Vehicle, vehicle_id)
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="车辆不存在")
@@ -87,7 +89,8 @@ def get_vehicle(db: DbSession, _: CurrentUser, vehicle_id: int) -> Vehicle:
 
 
 @router.patch("/{vehicle_id}", response_model=VehicleOut)
-def update_vehicle(db: DbSession, _: FleetUser, vehicle_id: int, body: VehicleUpdate) -> Vehicle:
+def update_vehicle(db: DbSession, current: FleetUser, vehicle_id: int, body: VehicleUpdate) -> Vehicle:
+    require_global_management(current)
     row = db.get(Vehicle, vehicle_id)
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="车辆不存在")
@@ -118,7 +121,8 @@ def update_vehicle(db: DbSession, _: FleetUser, vehicle_id: int, body: VehicleUp
 
 
 @router.delete("/{vehicle_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_vehicle(db: DbSession, _: FleetUser, vehicle_id: int) -> None:
+def delete_vehicle(db: DbSession, current: FleetUser, vehicle_id: int) -> None:
+    require_global_management(current)
     row = db.get(Vehicle, vehicle_id)
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="车辆不存在")

@@ -104,41 +104,44 @@ VITE_AMAP_SECURITY_JSCODE=对应安全密钥</pre>
         </div>
         <button type="button" class="amap-search-btn" @click="openNavForCurrent">打开导航</button>
       </div>
-      <div class="amap-search-row amap-search-row--secondary">
-        <label for="amap-street-search" class="amap-search-label">搜索街道</label>
-        <div class="amap-search-field-wrap">
-          <input
-            id="amap-street-search"
-            v-model="streetSearchKeyword"
-            type="text"
-            class="amap-search-input"
-            placeholder="输入街道名称搜索..."
-            aria-label="搜索街道名称"
-            @keyup.enter="searchStreet"
-          />
-          <button type="button" class="amap-search-btn amap-search-btn--secondary" @click="searchStreet">搜索</button>
-        </div>
-      </div>
-      <div v-if="streetSearchResults.length > 0" class="amap-search-results">
-        <div
-          v-for="(item, index) in streetSearchResults"
-          :key="index"
-          class="amap-search-result-item"
-          @click="selectStreetResult(item)"
-        >
-          <div class="amap-result-name">{{ item.name }}</div>
-          <div class="amap-result-address">{{ item.address }}</div>
-        </div>
-      </div>
       <p v-if="!allowMarkerEdit" class="amap-perm-hint">
         当前账号无地图标点编辑权限；预设点位置仅各级管理员可拖动或修改坐标。
       </p>
       <div v-if="allowMarkerEdit" class="amap-marker-editor">
-        <div class="amap-editor-toggle" @click="showMarkerEditor = !showMarkerEditor">
-          <span>{{ showMarkerEditor ? '收起' : '编辑标记位置' }}</span>
-          <span class="amap-toggle-icon">{{ showMarkerEditor ? '▼' : '▶' }}</span>
+        <div class="amap-editor-toggle">
+          <button
+            type="button"
+            class="amap-editor-toggle__main"
+            :aria-expanded="showMarkerEditor"
+            aria-controls="amap-marker-editor-panel"
+            @click="toggleMarkerEditor"
+          >
+            <span>{{ showMarkerEditor ? '收起' : '编辑标记位置' }}</span>
+            <span class="amap-toggle-icon" aria-hidden="true">{{ showMarkerEditor ? '▲' : '▼' }}</span>
+          </button>
+          <button
+            v-if="showMarkerEditor"
+            type="button"
+            class="amap-editor-help-btn"
+            :class="{ 'amap-editor-help-btn--active': showEditorHelp }"
+            :aria-expanded="showEditorHelp"
+            aria-controls="amap-editor-help"
+            @click="showEditorHelp = !showEditorHelp"
+          >
+            提示
+          </button>
         </div>
-        <div v-if="showMarkerEditor" class="amap-editor-panel">
+        <div
+          v-if="showMarkerEditor && showEditorHelp"
+          id="amap-editor-help"
+          class="amap-editor-help"
+          role="note"
+        >
+          <p>{{ currentPresetLocked ? '当前点已锁定；需要移动时先点“解锁拖动”，也可以直接修改经纬度。' : dragHintText }}</p>
+          <p v-if="manualPresetPersist">新增或修改后点击“保存当前标记”写入服务器；删除操作验证密码后自动保存。</p>
+          <p>解锁后直接按住地图上的当前图钉拖动，完成后点击“保存当前标记”。</p>
+        </div>
+        <div v-if="showMarkerEditor" id="amap-marker-editor-panel" class="amap-editor-panel">
           <div class="amap-editor-row">
             <label class="amap-editor-label">名称</label>
             <input
@@ -183,8 +186,6 @@ VITE_AMAP_SECURITY_JSCODE=对应安全密钥</pre>
             >
               {{ currentPresetLocked ? '解锁拖动' : '锁定拖动' }}
             </button>
-            <span v-if="isCoarsePointer" class="amap-lock-hint">锁定后不可拖点/选点；可改上方坐标后保存。</span>
-            <span v-else class="amap-lock-hint">锁定后无法在地图上拖动或选点，避免误触；仍可在上方改坐标后保存。</span>
           </div>
           <p
             v-if="lockStatusTip"
@@ -224,48 +225,12 @@ VITE_AMAP_SECURITY_JSCODE=对应安全密钥</pre>
               {{ deviceLocateLoading ? '定位中…' : '获取当前位置' }}
             </button>
           </div>
-          <button
-            type="button"
-            class="amap-editor-btn amap-editor-btn--block"
-            :class="{ 'amap-editor-btn--pick-on': mapPickActive }"
-            :disabled="!mapReady || currentPresetLocked"
-            @click="toggleMapPick"
-          >
-            {{ mapPickActive ? '取消地图选点' : '地图选点' }}
-          </button>
-          <p v-if="mapPickActive" class="amap-editor-tip amap-editor-tip--pick">
-            {{ mapPickHintText }}
-          </p>
-          <p v-if="manualPresetPersist" class="amap-editor-tip amap-editor-tip--persist">
-            新增或修改标记后，须点击「保存当前标记」才会写入服务器；「删除当前」验证密码后会自动保存。
-          </p>
-          <p class="amap-editor-tip">{{ dragHintText }}</p>
         </div>
       </div>
     </div>
 
-    <!-- 移动端展开编辑时：地图易吞掉单指滑动；中间条 + 临时关地图拖移，便于整页上下滚动 -->
-    <div
-      v-if="showMobileMapEditorChrome"
-      class="amap-mobile-page-scroll-bridge"
-      role="note"
-      aria-label="上下滑动此处可带动整页滚动"
-    >
-      <span class="amap-mobile-page-scroll-bridge__line" aria-hidden="true" />
-      <span class="amap-mobile-page-scroll-bridge__text">上下滑动 · 翻页</span>
-      <span class="amap-mobile-page-scroll-bridge__line" aria-hidden="true" />
-    </div>
-
     <!-- 仅地图区域为定位上下文，避免「图层 / 视角」悬浮控件相对整页（含搜索条）偏移 -->
-    <div class="amap-map-stage" :class="{ 'amap-map-stage--picking': mapPickActive }">
-      <div
-        v-if="mapPickActive && mapReady"
-        class="amap-pick-banner"
-        role="status"
-        aria-live="polite"
-      >
-        地图选点中 · 轻触目标位置
-      </div>
+    <div class="amap-map-stage">
       <div
         ref="hostRef"
         class="amap-host"
@@ -608,6 +573,7 @@ watch(
   (v) => {
     if (!v) {
       showMarkerEditor.value = false
+      showEditorHelp.value = false
       mapDragUnlockedIndices.value = new Set()
     }
     syncMarkerDraggability()
@@ -624,12 +590,6 @@ watch(
   },
 )
 
-// 街道搜索相关状态
-const streetSearchKeyword = ref('')
-const streetSearchResults = ref<Array<{ name: string; address: string; lng: number; lat: number }>>([])
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let placeSearchRaw: any = null
-
 // 标记编辑相关状态
 const editableMarker = ref<{ lng: number; lat: number; name: string } | null>(null)
 const editName = ref('')
@@ -637,6 +597,7 @@ const editNameInputRef = ref<HTMLInputElement | null>(null)
 const editLng = ref('')
 const editLat = ref('')
 const showMarkerEditor = ref(false)
+const showEditorHelp = ref(false)
 const deletePwdOpen = ref(false)
 const deletePwdField = ref('')
 const deletePwdVerifying = ref(false)
@@ -647,40 +608,21 @@ let lockStatusTipTimer: ReturnType<typeof setTimeout> | null = null
 const deviceLocateLoading = ref(false)
 /** 忽略过期的「获取当前位置」回调，避免定位返回时覆盖已拖动后的坐标 */
 let deviceLocateGeneration = 0
-const mapPickActive = ref(false)
 /** 触摸/笔等粗指针设备（典型为手机），用于提示文案与交互提示 */
 const isCoarsePointer = ref(false)
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let mapPickHandler: any = null
-/** 避免移动端一次轻触触发两次 map click */
-let lastMapPickAt = 0
 
-const mapPickHintText = computed(() =>
-  isCoarsePointer.value
-    ? '在地图上轻触路面等空白处选点；点到标记只会选中该点，可点在标记旁边。选到后自动关闭。'
-    : '在地图上单击以拾取该点经纬度（拾取一次后自动关闭）。',
-)
-
-const showMobileMapEditorChrome = computed(
-  () =>
-    props.showDestinationPicker &&
-    props.allowMarkerEdit &&
-    showMarkerEditor.value &&
-    isCoarsePointer.value,
-)
+function toggleMarkerEditor() {
+  showMarkerEditor.value = !showMarkerEditor.value
+  if (!showMarkerEditor.value) showEditorHelp.value = false
+}
 
 const dragHintText = computed(() => {
-  const coarseEditorNoPick =
-    isCoarsePointer.value &&
-    props.allowMarkerEdit &&
-    showMarkerEditor.value &&
-    !mapPickActive.value
-  const scrollHint = coarseEditorNoPick
+  const scrollHint = isCoarsePointer.value && props.allowMarkerEdit && showMarkerEditor.value
     ? ' 单指拖地图平移已暂时关闭，可先上下滑动页面；收起「编辑标记位置」后再拖地图。'
     : ''
   if (currentPresetLocked.value) {
     return (
-      '当前点已锁定：不可拖动或地图选点；需要移动时请点「解锁拖动」，或直接在上方改经纬度后点「保存当前标记」。' +
+      '当前点已锁定：不可拖动；需要移动时请点「解锁拖动」，或直接在上方改经纬度后点「保存当前标记」。' +
       scrollHint
     )
   }
@@ -696,8 +638,7 @@ function syncMapPanForCoarseEditor() {
   const suppressMapPan =
     isCoarsePointer.value &&
     props.allowMarkerEdit &&
-    showMarkerEditor.value &&
-    !mapPickActive.value
+    showMarkerEditor.value
   try {
     mapRaw.setStatus?.({ dragEnable: !suppressMapPan })
   } catch {
@@ -706,7 +647,7 @@ function syncMapPanForCoarseEditor() {
 }
 
 watch(
-  [isCoarsePointer, showMarkerEditor, mapPickActive, () => props.allowMarkerEdit, mapReady],
+  [isCoarsePointer, showMarkerEditor, () => props.allowMarkerEdit, mapReady],
   () => {
     if (!mapReady.value) return
     syncMapPanForCoarseEditor()
@@ -1006,9 +947,16 @@ function performRemoveSelectedPresetMarker() {
     recordNavPresetOp('delete', { name: removed.name, lng: removed.lng, lat: removed.lat })
   }
   reindexMapDragUnlockedAfterRemove(idx)
-  presetMarkers.value = presetMarkers.value.filter((_, i) => i !== idx)
-  selectPresetAtIndex(Math.min(idx, presetMarkers.value.length - 1))
+  const remaining = presetMarkers.value.filter((_, i) => i !== idx)
+
+  /* 删除后立即清理高德覆盖物，再按剩余数据重建，避免旧图钉残留到刷新。 */
+  skipPresetOverlayReinstall = true
+  destroyPresetOverlays()
+  presetMarkers.value = remaining
+  if (mapRaw && amapNS) installPresetOverlays(amapNS)
+  selectPresetAtIndex(Math.min(idx, remaining.length - 1))
   void nextTick(() => {
+    skipPresetOverlayReinstall = false
     if (props.manualPresetPersist) {
       emit('presets-persist-request')
     }
@@ -1078,7 +1026,6 @@ function toggleMarkerPositionLock() {
   if (willLock) next.delete(idx)
   else next.add(idx)
   mapDragUnlockedIndices.value = next
-  if (mapPickActive.value && isPresetUiLocked(idx)) detachMapPick()
   syncMarkerDraggability()
   const mk = presetOverlayMarkers[idx]
   if (mk) {
@@ -1094,65 +1041,14 @@ function toggleMarkerPositionLock() {
   if (willLock) {
     recordNavPresetOp('lock_drag', { name, lng: p?.lng, lat: p?.lat })
     showLockStatusTip(
-      `「${name}」已锁定：不能在地图上拖动或使用「地图选点」，避免误触；仍可在上方修改经纬度后点「保存当前标记」。`,
+      `「${name}」已锁定：不能在地图上拖动，避免误触；仍可在上方修改经纬度后点「保存当前标记」。`,
     )
   } else {
     recordNavPresetOp('unlock_drag', { name, lng: p?.lng, lat: p?.lat })
     showLockStatusTip(
-      `「${name}」已解锁拖动：可在地图上按住标记移动位置，也可使用「地图选点」；改完后请点「保存当前标记」。`,
+      `「${name}」已解锁拖动：可直接按住地图上的图钉移动位置；改完后请点「保存当前标记」。`,
     )
   }
-}
-
-function detachMapPick() {
-  if (mapPickHandler && mapRaw) {
-    try {
-      mapRaw.off('click', mapPickHandler)
-    } catch {
-      /* ignore */
-    }
-  }
-  mapPickHandler = null
-  mapPickActive.value = false
-  syncMapPanForCoarseEditor()
-}
-
-function toggleMapPick() {
-  if (!props.allowMarkerEdit || !mapRaw) return
-  if (mapPickActive.value) {
-    detachMapPick()
-    return
-  }
-  const pickIdx = selectedPresetIndex.value
-  if (isPresetUiLocked(pickIdx)) {
-    alert('当前标记已锁定位置，请先点「解锁拖动」再使用地图选点。')
-    return
-  }
-  lastMapPickAt = 0
-  mapPickActive.value = true
-  mapPickHandler = (e: any) => {
-    const now = Date.now()
-    if (now - lastMapPickAt < 320) return
-    lastMapPickAt = now
-    const idx = selectedPresetIndex.value
-    if (isPresetUiLocked(idx)) {
-      alert('当前标记已锁定，无法通过地图选点修改位置。')
-      detachMapPick()
-      return
-    }
-    const ll = e?.lnglat
-    if (!ll) return
-    const lng = typeof ll.getLng === 'function' ? ll.getLng() : Number(ll.lng)
-    const lat = typeof ll.getLat === 'function' ? ll.getLat() : Number(ll.lat)
-    if (Number.isNaN(lng) || Number.isNaN(lat)) return
-    editLng.value = lng.toFixed(6)
-    editLat.value = lat.toFixed(6)
-    const name = editName.value.trim() || navTarget.value.name
-    navTarget.value = { lng, lat, name }
-    updateEditableMarker(lng, lat)
-    detachMapPick()
-  }
-  mapRaw.on('click', mapPickHandler)
 }
 
 /** 使用高德定位获取设备当前位置（GCJ-02），填入上方经纬度框 */
@@ -1183,7 +1079,6 @@ function onFetchDeviceLocation() {
           updateEditableMarker(lng, lat)
           const idx = selectedPresetIndex.value
           if (idx >= 0 && idx < presetMarkers.value.length) {
-            const p = presetMarkers.value[idx]
             const next = presetMarkers.value.map((m, i) =>
               i === idx ? { ...m, lng, lat } : m,
             )
@@ -1400,38 +1295,6 @@ function openNavForCurrent() {
   openAmapNavigationTo(t.lng, t.lat, t.name)
 }
 
-// 街道搜索功能
-function searchStreet() {
-  if (!placeSearchRaw || !streetSearchKeyword.value.trim()) {
-    streetSearchResults.value = []
-    return
-  }
-  placeSearchRaw.search(streetSearchKeyword.value.trim(), (status: string, result: any) => {
-    if (status === 'complete' && result?.info === 'OK' && result?.poiList?.pois) {
-      streetSearchResults.value = result.poiList.pois.map((poi: any) => ({
-        name: poi.name,
-        address: poi.address || '暂无地址信息',
-        lng: Number(poi.location?.lng ?? 0),
-        lat: Number(poi.location?.lat ?? 0),
-      })).filter((p: { lng: number; lat: number }) => p.lng && p.lat)
-    } else {
-      streetSearchResults.value = []
-      console.warn('[amap] 搜索未返回结果', status, result)
-    }
-  })
-}
-
-function selectStreetResult(item: { name: string; address: string; lng: number; lat: number }) {
-  // 设置为目标点
-  navTarget.value = { lng: item.lng, lat: item.lat, name: item.name }
-  // 移动地图中心到该位置
-  mapRaw?.setCenter?.([item.lng, item.lat])
-  mapRaw?.setZoom?.(16)
-  // 清除搜索结果
-  streetSearchResults.value = []
-  streetSearchKeyword.value = item.name
-}
-
 onMounted(async () => {
   document.addEventListener('pointerdown', onPresetComboDocPointerDown, true)
   if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
@@ -1440,7 +1303,7 @@ onMounted(async () => {
   if (!canLoadMap.value) return
   initError.value = null
   try {
-    const plugins = ['AMap.Scale', 'AMap.PlaceSearch']
+    const plugins = ['AMap.Scale']
     const loadGeolocation = props.allowMarkerEdit
     if (loadGeolocation) plugins.push('AMap.Geolocation')
     const AMap = await loadAmap(plugins)
@@ -1478,13 +1341,6 @@ onMounted(async () => {
         showCircle: false,
       })
     }
-
-    // 初始化地点搜索插件
-    placeSearchRaw = new AMap.PlaceSearch({
-      pageSize: 10,
-      pageIndex: 1,
-      extensions: 'all',
-    })
 
     mapRaw = m
 
@@ -1543,9 +1399,7 @@ onMounted(async () => {
 onUnmounted(() => {
   if (lockStatusTipTimer) clearTimeout(lockStatusTipTimer)
   document.removeEventListener('pointerdown', onPresetComboDocPointerDown, true)
-  detachMapPick()
   geolocationRaw = null
-  placeSearchRaw = null
   destroyPresetOverlays()
   mapRaw?.destroy()
   mapRaw = null
@@ -1559,38 +1413,9 @@ onUnmounted(() => {
 .amap-wrap {
   position: relative;
   width: 100%;
-}
-
-/** 移动端：编辑与地图之间的「可滑动条」，单指上下滑交给整页滚动，避免只能挤在细缝里滑 */
-.amap-mobile-page-scroll-bridge {
-  display: none;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  margin: 0.35rem 0 0.55rem;
-  padding: 0.45rem 0.65rem;
-  border-radius: 10px;
-  border: 1px dashed rgba(142, 132, 109, 0.38);
-  background: rgba(253, 245, 238, 0.55);
-  touch-action: pan-y;
-  -webkit-user-select: none;
-  user-select: none;
-}
-
-.amap-mobile-page-scroll-bridge__line {
-  flex: 1 1 2rem;
-  max-width: 4rem;
-  height: 1px;
-  background: rgba(142, 132, 109, 0.35);
-}
-
-.amap-mobile-page-scroll-bridge__text {
-  flex: 0 0 auto;
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: rgba(80, 72, 58, 0.82);
-  white-space: nowrap;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .amap-delete-pwd-backdrop {
@@ -1681,30 +1506,9 @@ onUnmounted(() => {
 .amap-map-stage {
   position: relative;
   width: 100%;
-}
-
-.amap-map-stage--picking .amap-host {
-  box-shadow: inset 0 0 0 3px rgba(201, 100, 66, 0.38);
-}
-
-.amap-pick-banner {
-  position: absolute;
-  left: 50%;
-  top: max(10px, env(safe-area-inset-top, 0px));
-  transform: translateX(-50%);
-  z-index: 520;
-  padding: 0.45rem 0.95rem;
-  border-radius: 999px;
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--cl-charcoal, #2c2b28);
-  background: rgba(253, 252, 247, 0.97);
-  border: 1px solid rgba(201, 100, 66, 0.5);
-  box-shadow: 0 4px 18px rgba(20, 20, 19, 0.12);
-  pointer-events: none;
-  max-width: min(340px, calc(100% - 20px));
-  text-align: center;
-  line-height: 1.4;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 /** 减少触摸拖动标记时与地图平移手势冲突（依赖高德内部仍接收触摸） */
@@ -1772,6 +1576,10 @@ onUnmounted(() => {
 
 .amap-search-panel {
   margin-bottom: 0.65rem;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .amap-perm-hint {
@@ -1783,6 +1591,8 @@ onUnmounted(() => {
 
 .amap-search-row {
   display: flex;
+  width: 100%;
+  min-width: 0;
   gap: 0.5rem;
   align-items: stretch;
   flex-wrap: wrap;
@@ -1822,6 +1632,8 @@ onUnmounted(() => {
 .amap-preset-combobox {
   position: relative;
   width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .amap-preset-combobox__trigger {
@@ -1928,6 +1740,7 @@ onUnmounted(() => {
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   flex: 0 0 auto;
+  box-sizing: border-box;
 }
 
 .amap-search-btn:disabled {
@@ -1935,63 +1748,12 @@ onUnmounted(() => {
   cursor: not-allowed;
 }
 
-.amap-search-btn--secondary {
-  background: rgba(201, 100, 66, 0.85);
-  border-color: rgba(201, 100, 66, 0.55);
-}
-
-.amap-search-row--secondary {
-  margin-top: 0.5rem;
-}
-
-.amap-search-field-wrap {
-  flex: 1 1 180px;
-  display: flex;
-  gap: 0.5rem;
-}
-
-.amap-search-results {
-  margin-top: 0.5rem;
-  max-height: 240px;
-  overflow-y: auto;
-  background: rgba(255, 255, 255, 0.98);
-  border: 1px solid var(--cl-border-warm, rgba(142, 132, 109, 0.35));
-  border-radius: 10px;
-  box-shadow: 0 4px 18px rgba(20, 20, 19, 0.08);
-}
-
-.amap-search-result-item {
-  padding: 0.65rem 0.9rem;
-  cursor: pointer;
-  border-bottom: 1px solid rgba(142, 132, 109, 0.12);
-  transition: background 0.15s ease;
-}
-
-.amap-search-result-item:last-child {
-  border-bottom: none;
-}
-
-.amap-search-result-item:hover {
-  background: rgba(253, 245, 238, 0.85);
-}
-
-.amap-result-name {
-  font-weight: 600;
-  font-size: 0.9rem;
-  color: var(--cl-charcoal, #2c2b28);
-  margin-bottom: 0.25rem;
-}
-
-.amap-result-address {
-  font-size: 0.8rem;
-  color: rgba(44, 43, 40, 0.7);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .amap-marker-editor {
   margin-top: 0.5rem;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   border: 1px solid var(--cl-border-warm, rgba(142, 132, 109, 0.35));
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.95);
@@ -2021,8 +1783,15 @@ onUnmounted(() => {
 }
 
 .amap-editor-panel {
-  padding: 0.75rem 0.9rem;
+  display: grid;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  gap: 0.5rem;
+  padding: 0.7rem 0.8rem 0.75rem;
   border-top: 1px solid rgba(142, 132, 109, 0.2);
+  background: rgba(255, 255, 255, 0.34);
 }
 
 .amap-editor-lock-row {
@@ -2056,9 +1825,11 @@ onUnmounted(() => {
 
 .amap-editor-row {
   display: flex;
+  width: 100%;
+  min-width: 0;
   align-items: center;
   gap: 0.5rem;
-  margin-bottom: 0.6rem;
+  margin: 0;
 }
 
 .amap-editor-row--coords {
@@ -2089,11 +1860,15 @@ onUnmounted(() => {
 
 .amap-editor-input {
   flex: 1 1 auto;
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
+  box-sizing: border-box;
   padding: 0.4rem 0.6rem;
-  border-radius: 6px;
+  min-height: 38px;
+  border-radius: 9px;
   border: 1px solid rgba(142, 132, 109, 0.35);
-  font-size: 0.85rem;
+  font-size: 16px;
   background: rgba(255, 255, 255, 0.98);
 }
 
@@ -2103,32 +1878,16 @@ onUnmounted(() => {
 }
 
 .amap-editor-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+  min-width: 0;
   gap: 0.5rem;
-  margin-top: 0.75rem;
+  margin: 0;
 }
 
 .amap-editor-actions--split {
-  flex-wrap: wrap;
-}
-
-.amap-editor-btn--block {
-  width: 100%;
-  margin-top: 0.5rem;
-  flex: none;
-}
-
-.amap-editor-btn--pick-on {
-  border-color: rgba(201, 100, 66, 0.65);
-  background: rgba(201, 100, 66, 0.12);
-  color: var(--cl-terracotta, #c96442);
-  font-weight: 600;
-}
-
-.amap-editor-tip--pick {
-  font-style: normal;
-  color: rgba(201, 100, 66, 0.95);
-  font-weight: 500;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .amap-editor-tip--persist {
@@ -2138,7 +1897,7 @@ onUnmounted(() => {
 }
 
 .amap-editor-tip--lock-status {
-  margin-top: 0.45rem;
+  margin: 0;
   font-style: normal;
   font-weight: 500;
   color: rgba(80, 72, 58, 0.92);
@@ -2150,12 +1909,17 @@ onUnmounted(() => {
 }
 
 .amap-editor-btn {
-  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   padding: 0.4rem 0.75rem;
-  border-radius: 6px;
+  min-height: 36px;
+  border-radius: 9px;
   border: 1px solid rgba(142, 132, 109, 0.35);
   background: rgba(255, 255, 255, 0.95);
   font-size: 0.8rem;
+  text-align: center;
+  white-space: normal;
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -2363,7 +2127,7 @@ onUnmounted(() => {
     margin-top: 0.35rem;
     border-radius: 8px;
     box-shadow: 0 2px 0 rgba(44, 43, 40, 0.06);
-    touch-action: pan-y;
+    touch-action: pan-y pinch-zoom;
   }
 
   /** 展开编辑时不再用内层滚动「锁住」整页：在表单、空白处上下滑交给外层页面 */
@@ -2378,10 +2142,6 @@ onUnmounted(() => {
     overflow-y: auto;
     padding: 0.42rem 0.55rem 0.48rem;
     -webkit-overflow-scrolling: touch;
-  }
-
-  .amap-mobile-page-scroll-bridge {
-    display: flex;
   }
 
   .amap-editor-row {
@@ -2419,10 +2179,6 @@ onUnmounted(() => {
   .amap-editor-actions {
     margin-top: 0.35rem;
     gap: 0.3rem;
-  }
-
-  .amap-editor-btn--block {
-    margin-top: 0.35rem;
   }
 
   .amap-editor-input {
@@ -2547,5 +2303,392 @@ onUnmounted(() => {
 
 .amap-tool-btn--ghost {
   background: transparent;
+}
+
+/* 紧凑应用式地图布局：明确搜索层、地图层与浮动控件层的堆叠关系。 */
+.amap-search-panel {
+  position: relative;
+  z-index: 30;
+  margin-bottom: 0.5rem;
+  padding: 0.6rem;
+  border: 1px solid rgba(201, 100, 66, 0.2);
+  border-radius: 14px;
+  background: rgba(253, 249, 242, 0.82);
+  box-shadow: 0 5px 18px rgba(53, 45, 37, 0.055);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.amap-search-row {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 1fr) auto;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.amap-search-input,
+.amap-search-btn {
+  min-height: 40px;
+  border-radius: 10px;
+}
+
+.amap-search-btn {
+  padding-inline: 0.85rem;
+  font-weight: 700;
+}
+
+.amap-preset-combobox__panel {
+  z-index: 90;
+  border-radius: 12px;
+  box-shadow: 0 14px 34px rgba(20, 20, 19, 0.16);
+}
+
+.amap-marker-editor {
+  margin-top: 0.4rem;
+  border-radius: 11px;
+}
+
+.amap-map-stage {
+  z-index: 1;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(53, 45, 37, 0.08);
+}
+
+.amap-layer-tools,
+.amap-view-tools {
+  z-index: 40;
+}
+
+.amap-layer-toggle,
+.amap-layer-panel,
+.amap-view-tools {
+  backdrop-filter: blur(14px) saturate(1.08);
+  -webkit-backdrop-filter: blur(14px) saturate(1.08);
+}
+
+@media (max-width: 640px) {
+  .amap-search-panel {
+    margin-bottom: 0.4rem;
+    padding: 0.45rem;
+    border-radius: 13px;
+    background: rgba(253, 249, 242, 0.9);
+  }
+
+  .amap-search-row {
+    grid-template-columns: minmax(0, 1fr) 88px;
+    gap: 0.35rem;
+  }
+
+  .amap-search-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .amap-preset-combobox-wrap {
+    grid-column: 1;
+    min-width: 0;
+  }
+
+  .amap-search-row > .amap-search-btn {
+    grid-column: 2;
+    width: 100%;
+  }
+
+  .amap-search-input,
+  .amap-search-btn {
+    min-height: 38px;
+    padding: 0.4rem 0.65rem;
+    border-radius: 9px;
+    font-size: 0.8rem;
+  }
+
+  .amap-search-btn {
+    padding-inline: 0.55rem;
+  }
+
+  .amap-preset-combobox__panel {
+    top: calc(100% + 5px);
+    padding: 0.4rem;
+    border-radius: 11px;
+  }
+
+  .amap-preset-combobox__filter {
+    min-height: 38px;
+    margin-bottom: 0.25rem;
+  }
+
+  .amap-preset-combobox__list {
+    max-height: min(38svh, 260px);
+  }
+
+  .amap-preset-combobox__option {
+    min-height: 38px;
+    display: flex;
+    align-items: center;
+    padding: 0.4rem 0.55rem;
+    border-radius: 8px;
+    font-size: 0.8rem;
+  }
+
+  .amap-marker-editor {
+    margin-top: 0.35rem;
+    border-radius: 10px;
+  }
+
+  .amap-editor-toggle {
+    min-height: 36px;
+    padding: 0.35rem 0.6rem;
+    font-size: 0.76rem;
+  }
+
+  .amap-search-panel--editor-open {
+    margin-bottom: 0.45rem;
+    padding-bottom: 0.45rem;
+    border-bottom-width: 1px;
+    box-shadow: 0 7px 18px rgba(20, 20, 19, 0.08);
+  }
+
+  .amap-map-stage {
+    border-radius: 12px;
+  }
+
+  .amap-host {
+    height: clamp(380px, calc(100svh - 220px), 720px);
+    min-height: 380px;
+    border-radius: 12px;
+  }
+
+  .amap-layer-tools {
+    top: 7px;
+    right: 7px;
+    gap: 4px;
+    max-width: min(176px, calc(100% - 90px));
+  }
+
+  .amap-layer-toggle {
+    min-height: 34px;
+    padding: 0.32rem 0.58rem;
+    border-radius: 10px;
+    font-size: 0.74rem;
+    background: rgba(253, 252, 247, 0.9);
+  }
+
+  .amap-layer-panel {
+    width: 168px;
+    min-width: 0;
+    max-width: calc(100vw - 32px);
+    padding: 8px 10px;
+    border-radius: 11px;
+  }
+
+  .amap-layer-section {
+    margin-bottom: 7px;
+  }
+
+  .amap-layer-option {
+    min-height: 30px;
+    margin-bottom: 2px;
+    font-size: 0.76rem;
+  }
+
+  .amap-view-tools {
+    right: auto;
+    bottom: 24px;
+    left: 7px;
+    width: max-content;
+    max-width: calc(100% - 14px);
+    padding: 5px 6px;
+    gap: 3px;
+    border-radius: 11px;
+    background: rgba(253, 252, 247, 0.88);
+  }
+
+  .amap-tool-btn {
+    min-height: 31px;
+    padding: 0.28rem 0.42rem;
+    border-radius: 8px;
+    font-size: 0.68rem;
+  }
+
+  .amap-tool-btn--icon {
+    min-width: 2.15rem;
+  }
+
+  .amap-tool-sep {
+    height: 1rem;
+    margin-inline: 1px;
+  }
+}
+
+/* 编辑区说明按需展开，默认只保留操作本身，避免长期挤占地图高度。 */
+.amap-editor-toggle {
+  gap: 0.35rem;
+  padding: 0.2rem 0.25rem 0.2rem 0.65rem;
+  cursor: default;
+}
+
+.amap-editor-toggle__main {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.45rem;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.amap-editor-help-btn {
+  flex: 0 0 auto;
+  margin-left: auto;
+  min-height: 30px;
+  padding: 0.25rem 0.58rem;
+  border: 1px solid rgba(142, 132, 109, 0.28);
+  border-radius: 9px;
+  color: rgba(80, 72, 58, 0.9);
+  background: rgba(255, 255, 255, 0.72);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.amap-editor-help-btn--active {
+  border-color: rgba(201, 100, 66, 0.4);
+  color: var(--cl-terracotta, #c96442);
+  background: rgba(201, 100, 66, 0.1);
+}
+
+.amap-editor-help {
+  padding: 0.5rem 0.65rem;
+  border-top: 1px solid rgba(142, 132, 109, 0.16);
+  border-bottom: 1px solid rgba(142, 132, 109, 0.16);
+  color: rgba(80, 72, 58, 0.82);
+  background: rgba(255, 252, 246, 0.82);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.amap-editor-help p {
+  margin: 0;
+}
+
+.amap-editor-help p + p {
+  margin-top: 0.28rem;
+}
+
+@media (max-width: 640px) {
+  .amap-editor-toggle {
+    min-height: 38px;
+    padding: 0.15rem 0.2rem 0.15rem 0.55rem;
+  }
+
+  .amap-editor-toggle__main {
+    min-height: 34px;
+    font-size: 0.76rem;
+  }
+
+  .amap-editor-help-btn {
+    min-height: 29px;
+    padding-inline: 0.52rem;
+    border-radius: 8px;
+    font-size: 0.68rem;
+  }
+
+  .amap-editor-help {
+    padding: 0.42rem 0.55rem;
+    font-size: 0.66rem;
+    line-height: 1.4;
+  }
+
+  .amap-editor-panel {
+    gap: 6px;
+    padding: 7px;
+    border-radius: 0 0 10px 10px;
+    background: rgba(253, 252, 247, 0.72);
+  }
+
+  .amap-editor-row:not(.amap-editor-row--coords) {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+
+  .amap-editor-row--coords {
+    gap: 6px;
+    margin: 0;
+  }
+
+  .amap-editor-coord-cell {
+    gap: 3px;
+  }
+
+  .amap-editor-input {
+    min-height: 36px;
+    padding: 5px 8px;
+    border-radius: 9px;
+    font-size: 16px;
+    line-height: 1.2;
+    box-shadow: inset 0 1px 1px rgba(44, 43, 40, 0.025);
+  }
+
+  .amap-editor-label {
+    min-width: 0;
+    font-size: 11px;
+    line-height: 1.25;
+    letter-spacing: 0.02em;
+  }
+
+  .amap-preset-combobox__filter,
+  .amap-delete-pwd-input {
+    font-size: 16px;
+  }
+
+  .amap-editor-lock-row {
+    margin: 0;
+  }
+
+  .amap-editor-btn--lock {
+    width: 100%;
+    flex: 1 1 100%;
+  }
+
+  .amap-editor-btn {
+    min-height: 33px;
+    padding: 5px 7px;
+    border-radius: 9px;
+    font-size: 12px;
+    line-height: 1.2;
+  }
+
+  .amap-editor-actions {
+    gap: 5px;
+    margin: 0;
+  }
+
+  .amap-editor-tip--lock-status {
+    padding: 5px 7px;
+    border-radius: 8px;
+    background: rgba(46, 125, 78, 0.07);
+    font-size: 11px;
+    line-height: 1.35;
+  }
 }
 </style>

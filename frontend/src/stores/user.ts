@@ -8,7 +8,7 @@ export const useUserStore = defineStore('user', {
     profile: null as null | authApi.UserInfo,
   }),
   actions: {
-    async login(payload: { username: string; password: string; slider_session_id: string }) {
+    async login(payload: { username: string; password: string }) {
       const res = await authApi.login(payload)
       this.token = res.access_token
       this.profile = res.user

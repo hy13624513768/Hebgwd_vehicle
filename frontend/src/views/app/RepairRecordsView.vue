@@ -2,8 +2,9 @@
   <div class="repair-records">
     <header class="repair-records__head">
       <h1 class="repair-records__title">维修记录</h1>
+      <p class="repair-records__eyebrow">现场上报 · 智能归档</p>
       <p class="repair-records__desc muted">
-        登记送修信息并上传结算单照片；保存后系统将<strong>自动调用 AI 识别</strong>结算单，结果流转至「维修保养」页按词条归类展示。
+        先登记车辆与驾驶员，再补充现场资料。结算单提交后自动识别并归档到维修保养。
       </p>
     </header>
 
@@ -12,15 +13,17 @@
         {{ formMsg.text }}
       </div>
 
+      <div class="form-section-title"><span>01</span> 送修信息</div>
+
       <div class="field field--row">
-        <label class="field__label">车牌号</label>
+        <label class="field__label">车牌号 <em>必填</em></label>
         <div class="field__body">
           <div v-if="vehiclesLoading" class="muted field__placeholder">正在加载车辆列表…</div>
           <SearchableSelect
             v-else
             v-model="vehicleId"
-            class="field__control"
-            trigger-class="searchable-select--block searchable-select--ledger-form"
+            class="field__control searchable-select--block"
+            trigger-class="searchable-select--ledger-form"
             :options="vehicleOptions"
             allow-empty
             empty-label="请选择车牌"
@@ -30,29 +33,14 @@
       </div>
 
       <div class="field field--row">
-        <label class="field__label" for="repair-order-no">维修单号</label>
-        <div class="field__body">
-          <input
-            id="repair-order-no"
-            v-model="repairOrderNo"
-            type="text"
-            class="field__input"
-            autocomplete="off"
-            placeholder="纸质或系统维修单号"
-            maxlength="128"
-          />
-        </div>
-      </div>
-
-      <div class="field field--row">
-        <label class="field__label">驾驶员</label>
+        <label class="field__label">驾驶员 <em>必填</em></label>
         <div class="field__body">
           <div v-if="driversLoading" class="muted field__placeholder">正在加载驾驶员列表…</div>
           <SearchableSelect
             v-else
             v-model="driverId"
-            class="field__control"
-            trigger-class="searchable-select--block searchable-select--ledger-form"
+            class="field__control searchable-select--block"
+            trigger-class="searchable-select--ledger-form"
             :options="driverOptions"
             allow-empty
             empty-label="请选择驾驶员"
@@ -61,56 +49,64 @@
         </div>
       </div>
 
-      <div class="field field--row field--capture">
-        <span class="field__label" id="repair-label-duo">驾驶员与车辆合影</span>
-        <div class="field__body field__body--capture" aria-labelledby="repair-label-duo">
+      <div class="field field--row">
+        <label class="field__label" for="repair-order-no">维修单号 <em>必填</em></label>
+        <div class="field__body">
+          <input
+            id="repair-order-no"
+            v-model="repairOrderNo"
+            type="text"
+            class="field__input"
+            autocomplete="off"
+            placeholder="例如：W-20260804-001"
+            pattern="W-[0-9]{8}-.*"
+            title="格式应为 W-8位数字-后续编号，例如 W-20260804-001"
+            maxlength="128"
+          />
+        </div>
+      </div>
+
+      <div class="form-section-title form-section-title--media">
+        <span>02</span> 驾驶员与车辆合影 <em>必填</em>
+      </div>
+
+      <p class="form-section-hint">请将维修材料摆放好，与驾驶员和车辆一并拍照，最多上传 5 张。</p>
+
+      <div class="field field--row field--capture field--capture-only">
+        <div class="field__body field__body--capture">
           <MobileMediaCapture
             ref="captureDuoRef"
-            panel-aria-label="驾驶员与车辆合影"
-            photo-heading="驾驶员与车辆合影"
+            compact
+            panel-aria-label="驾驶员、车辆及维修材料合影"
+            photo-heading=""
             photo-file-base="repair_duo_photo"
+            :photo-input-capture="false"
             :enable-video="false"
-            :single-photo="true"
+            :single-photo="false"
+            :max-photos="5"
             :show-photo-download="false"
-            photo-hint="每条记录限一张。建议包含驾驶员与车牌同框，便于核对。可「重新拍照」替换或「清除照片」后重选。"
+            photo-hint=""
           />
         </div>
       </div>
 
-      <div class="field field--row field--capture">
-        <span class="field__label" id="repair-label-item">维修项目（照片 / 视频）</span>
-        <div class="field__body field__body--capture" aria-labelledby="repair-label-item">
-          <MobileMediaCapture
-            ref="captureRepairItemRef"
-            panel-aria-label="维修项目照片与视频"
-            photo-heading="维修项目照片"
-            video-heading="维修项目视频"
-            photo-file-base="repair_item_photo"
-            video-file-base="repair_item_video"
-            :enable-video="true"
-            :single-photo="true"
-            :single-video="true"
-            :show-photo-download="false"
-            :show-video-download="false"
-            :video-input-capture="false"
-            photo-hint="限一张：工单、报价单上的维修项目明细等。后续可对接 OCR 或结构化解析。"
-            video-hint="限一段：点击按钮可在支持的环境下录像，或从相册选取已有视频（未加 capture，便于系统提供「拍摄 / 文件」等选项）。"
-          />
-        </div>
+      <div class="form-section-title form-section-title--media">
+        <span>03</span> 结算单照片 <em>必填</em>
       </div>
 
-      <div class="field field--row field--capture">
-        <span class="field__label" id="repair-label-settle">结算单照片</span>
-        <div class="field__body field__body--capture" aria-labelledby="repair-label-settle">
+      <div class="field field--row field--capture field--capture-only">
+        <div class="field__body field__body--capture">
           <MobileMediaCapture
             ref="captureSettlementRef"
+            compact
             panel-aria-label="结算单照片"
-            photo-heading="结算单照片"
+            photo-heading=""
             photo-file-base="repair_settlement_photo"
+            :photo-input-capture="false"
             :enable-video="false"
             :single-photo="true"
             :show-photo-download="false"
-            photo-hint="限一张：结算单、发票等。提交后将自动 AI 识别并归类到维修词条。"
+            photo-hint=""
           />
         </div>
       </div>
@@ -119,12 +115,10 @@
         <button type="submit" class="btn btn--primary" :disabled="submitting">
           {{ submitting ? '提交中…' : '保存记录' }}
         </button>
-        <button type="button" class="btn btn--ghost" :disabled="submitting" @click="resetForm">重置表单</button>
+        <button type="button" class="btn btn--ghost" :disabled="submitting" @click="resetForm()">重置表单</button>
       </div>
 
-      <p class="form-foot muted">
-        提交后结算单会自动识别；可在「费用管理 → 维修保养」查看归类结果。
-      </p>
+      <p class="form-foot muted">媒体文件存入私有存储；提交后可在「费用管理 → 维修保养」查看识别结果。</p>
     </form>
   </div>
 </template>
@@ -133,8 +127,8 @@
 import { computed, onMounted, ref } from 'vue'
 
 import { createRepairRecord } from '@/api/repairRecords'
-import { listDrivers } from '@/api/drivers'
-import { listVehicles } from '@/api/vehicles'
+import { listAllDrivers } from '@/api/drivers'
+import { listAllVehicles } from '@/api/vehicles'
 import type { Driver, Vehicle } from '@/api/types'
 import MobileMediaCapture from '@/components/MobileMediaCapture.vue'
 import SearchableSelect, { type SearchableOption } from '@/components/SearchableSelect.vue'
@@ -148,9 +142,9 @@ const driversLoading = ref(true)
 const driverId = ref(0)
 
 const repairOrderNo = ref('')
+const repairOrderPattern = /^W-\d{8}-.*$/
 
 const captureDuoRef = ref<InstanceType<typeof MobileMediaCapture> | null>(null)
-const captureRepairItemRef = ref<InstanceType<typeof MobileMediaCapture> | null>(null)
 const captureSettlementRef = ref<InstanceType<typeof MobileMediaCapture> | null>(null)
 
 const submitting = ref(false)
@@ -174,15 +168,10 @@ const driverOptions = computed<SearchableOption[]>(() =>
   })),
 )
 
-function driverDisplayName(): string {
-  const d = drivers.value.find((x) => x.id === driverId.value)
-  return d ? `${d.name}（${d.phone}）` : `#${driverId.value}`
-}
-
 async function loadVehicles() {
   vehiclesLoading.value = true
   try {
-    vehicles.value = await listVehicles({ limit: 200 })
+    vehicles.value = await listAllVehicles()
   } catch {
     vehicles.value = []
     formMsg.value = { kind: 'err', text: '车辆列表加载失败，请稍后重试。' }
@@ -194,8 +183,7 @@ async function loadVehicles() {
 async function loadDrivers() {
   driversLoading.value = true
   try {
-    const { items } = await listDrivers({ limit: 200 })
-    drivers.value = items
+    drivers.value = await listAllDrivers()
   } catch {
     drivers.value = []
     formMsg.value = { kind: 'err', text: '驾驶员列表加载失败，请稍后重试。' }
@@ -204,15 +192,13 @@ async function loadDrivers() {
   }
 }
 
-function resetForm() {
+function resetForm(clearMessage = true) {
   vehicleId.value = 0
   driverId.value = 0
   repairOrderNo.value = ''
   captureDuoRef.value?.clearPhoto()
-  captureRepairItemRef.value?.clearPhoto()
-  captureRepairItemRef.value?.clearVideo()
   captureSettlementRef.value?.clearPhoto()
-  formMsg.value = null
+  if (clearMessage) formMsg.value = null
 }
 
 async function onSubmit() {
@@ -221,21 +207,26 @@ async function onSubmit() {
     formMsg.value = { kind: 'err', text: '请选择车牌号。' }
     return
   }
+  if (!driverId.value) {
+    formMsg.value = { kind: 'err', text: '请选择驾驶员。' }
+    return
+  }
   const order = repairOrderNo.value.trim()
   if (!order) {
     formMsg.value = { kind: 'err', text: '请填写维修单号。' }
     return
   }
-  if (!driverId.value) {
-    formMsg.value = { kind: 'err', text: '请选择驾驶员。' }
+  if (!repairOrderPattern.test(order)) {
+    formMsg.value = { kind: 'err', text: '维修单号格式不正确，应为 W-8位数字-后续编号，例如 W-20260804-001。' }
     return
   }
-
-  const duo = captureDuoRef.value?.getPhotoFile?.() ?? null
-  const itemPhoto = captureRepairItemRef.value?.getPhotoFile?.() ?? null
-  const itemVideo = captureRepairItemRef.value?.getVideoFile?.() ?? null
+  const duoPhotos = captureDuoRef.value?.getPhotoFiles?.() ?? []
   const settle = captureSettlementRef.value?.getPhotoFile?.() ?? null
 
+  if (!duoPhotos.length) {
+    formMsg.value = { kind: 'err', text: '请上传驾驶员、车辆及维修材料合影。' }
+    return
+  }
   if (!settle) {
     formMsg.value = { kind: 'err', text: '请上传结算单照片（AI 识别必需）。' }
     return
@@ -248,9 +239,7 @@ async function onSubmit() {
     fd.append('repair_order_no', order)
     fd.append('driver_id', String(driverId.value))
     fd.append('auto_recognize', 'true')
-    if (duo) fd.append('photo_duo', duo)
-    if (itemPhoto) fd.append('photo_item', itemPhoto)
-    if (itemVideo) fd.append('photo_item_video', itemVideo)
+    for (const photo of duoPhotos) fd.append('photo_duo', photo)
     if (settle) fd.append('photo_settlement', settle)
 
     const record = await createRepairRecord(fd)
@@ -264,7 +253,7 @@ async function onSubmit() {
           ? `提交成功！已识别 ${lines} 项维修明细，可在「维修保养」页查看归类。`
           : `已保存记录，但识别${status === 'failed' ? '失败' : '未完成'}：${st?.recognition_error || record.status}`,
     }
-    if (status === 'done') resetForm()
+    if (status === 'done') resetForm(false)
   } catch (e: unknown) {
     const err = e as { response?: { data?: { detail?: string } } }
     formMsg.value = { kind: 'err', text: err.response?.data?.detail || '提交失败，请稍后重试。' }
@@ -306,6 +295,14 @@ onMounted(() => {
   font-size: clamp(1.1rem, 2.5vw, 1.35rem);
   font-weight: 600;
   color: var(--cl-charcoal, #2c2b28);
+}
+
+.repair-records__eyebrow {
+  margin: 0 0 0.25rem;
+  color: var(--cl-terracotta, #c96442);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
 }
 
 .repair-records__desc {
@@ -355,12 +352,14 @@ onMounted(() => {
 }
 
 .field {
+  min-width: 0;
   margin-bottom: 1.1rem;
 }
 
 .field--row {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   gap: 0.35rem 0;
   align-items: start;
 }
@@ -374,8 +373,58 @@ onMounted(() => {
   line-height: 1.3;
 }
 
+.field__label em {
+  margin-left: 0.2rem;
+  color: var(--cl-terracotta, #c96442);
+  font-size: 0.7rem;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.form-section-title {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0 0 1rem;
+  color: var(--cl-charcoal, #2c2b28);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.form-section-title span {
+  display: inline-grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border-radius: 8px;
+  background: rgba(201, 100, 66, 0.12);
+  color: var(--cl-terracotta, #c96442);
+  font-size: 0.72rem;
+}
+
+.form-section-title em {
+  color: var(--cl-terracotta, #c96442);
+  font-size: 0.7rem;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.form-section-title--media {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid rgba(142, 132, 109, 0.18);
+}
+
+.form-section-hint {
+  margin: -0.45rem 0 0.7rem;
+  color: var(--cl-olive, #6b6558);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
 .field__body {
   min-width: 0;
+  max-width: 100%;
   width: 100%;
 }
 
@@ -411,11 +460,15 @@ onMounted(() => {
 
 .field__input:focus {
   outline: 2px solid var(--cl-terracotta, #c96442);
-  outline-offset: 1px;
+  outline-offset: -2px;
 }
 
 .field__body--capture :deep(.mobile-capture) {
   width: 100%;
+}
+
+.field--capture-only .field__body {
+  grid-column: 1 / -1;
 }
 
 .field__body--capture :deep(.panel) {
@@ -423,15 +476,15 @@ onMounted(() => {
 }
 
 .field__body--capture :deep(.actions .btn.primary) {
-  background: rgba(255, 255, 255, 0.98);
-  color: var(--cl-terracotta, #c96442);
-  border: 2px solid var(--cl-terracotta, #c96442);
-  box-shadow: none;
-  font-weight: 600;
+  background: var(--cl-terracotta, #c96442);
+  color: #fff;
+  border: 1px solid var(--cl-terracotta, #c96442);
+  box-shadow: 0 2px 6px rgba(201, 100, 66, 0.18);
+  font-weight: 650;
 }
 
 .field__body--capture :deep(.actions .btn.primary:hover) {
-  background: rgba(201, 100, 66, 0.08);
+  background: #b95739;
 }
 
 .field__body--capture :deep(.actions .btn.ghost) {
@@ -511,56 +564,115 @@ onMounted(() => {
 }
 
 @media (max-width: 559px) {
+  .repair-records__head {
+    display: none;
+  }
+
   .form {
-    padding: 1rem 0.85rem;
-    border-radius: 12px;
+    padding: clamp(0.65rem, 1.2dvh, 1rem);
+    border-radius: 16px;
+    box-shadow: 0 6px 24px rgba(35, 32, 27, 0.055);
   }
 
   .repair-records {
-    --fuel-control-h: 48px;
+    --fuel-control-h: clamp(44px, 5.2dvh, 48px);
     --fuel-control-fs: 16px;
     max-width: 100%;
   }
 
+  .form-section-title {
+    gap: 0.45rem;
+    margin-bottom: clamp(0.4rem, 0.85dvh, 0.9rem);
+    font-size: 0.9rem;
+  }
+
+  .form-section-title span {
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: 8px;
+    font-size: 0.72rem;
+  }
+
+  .form-section-title--media {
+    margin-top: clamp(0.45rem, 0.9dvh, 1rem);
+    padding-top: clamp(0.45rem, 0.9dvh, 0.9rem);
+  }
+
+  .field {
+    margin-bottom: clamp(0.45rem, 0.9dvh, 0.9rem);
+  }
+
+  .field__label {
+    font-size: 0.86rem;
+  }
+
+  .field__input {
+    min-height: var(--fuel-control-h);
+    padding: 10px 11px;
+  }
+
   .field--capture {
-    margin-bottom: 1.35rem;
+    margin-bottom: clamp(0.35rem, 0.7dvh, 0.65rem);
   }
 
   .field__body--capture :deep(.actions) {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.6rem;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
     margin-bottom: 0;
   }
 
   .field__body--capture :deep(.actions .btn) {
-    width: 100%;
-    min-height: 48px;
+    width: auto;
+    min-height: 40px;
   }
 
   .field__body--capture :deep(.actions .btn--link) {
-    width: 100%;
+    width: auto;
   }
 
   .form-actions {
-    flex-direction: column;
-    align-items: stretch;
-    margin-top: 1.5rem;
-    padding-top: 1.25rem;
-    gap: 0.75rem;
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+    margin-top: 0;
+    padding-top: clamp(0.55rem, 1dvh, 1rem);
+    gap: 0.5rem;
+    background: transparent;
   }
 
   .form-actions .btn {
-    width: 100%;
+    width: auto;
     justify-content: center;
-    min-height: 50px;
-    font-size: 1rem;
+    min-height: 44px;
+    padding: 0.45rem 0.7rem;
+    font-size: 0.9rem;
+  }
+
+  .form-foot {
+    display: none;
+  }
+}
+
+@media (max-width: 559px) and (max-height: 760px) {
+  .form-section-title span {
+    width: 1.45rem;
+    height: 1.45rem;
+  }
+
+  .field__body--capture :deep(.actions .btn) {
+    min-height: 38px;
+    padding-top: 0.35rem;
+    padding-bottom: 0.35rem;
+  }
+
+  .form-actions .btn {
+    min-height: 42px;
   }
 }
 
 @media (max-width: 380px) {
   .repair-records {
-    --fuel-control-fs: 15px;
+    --fuel-control-fs: 16px;
   }
 }
 </style>
@@ -585,6 +697,13 @@ onMounted(() => {
   line-height: 1.25;
   background: rgba(255, 255, 255, 0.95);
   color: var(--cl-charcoal, #2c2b28);
+}
+
+@media (max-width: 559px) {
+  :is(.fuel-records, .repair-records) .searchable-select .searchable-select__trigger.searchable-select--ledger-form {
+    min-height: var(--fuel-control-h, 48px);
+    padding: 10px 11px;
+  }
 }
 
 :is(.fuel-records, .repair-records)

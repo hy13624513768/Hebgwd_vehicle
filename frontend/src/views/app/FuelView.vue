@@ -3,6 +3,14 @@
     <section class="panel balance-panel">
       <div class="hd hd--split">
         <h2>油卡余额</h2>
+        <button
+          type="button"
+          class="ghost balance-analysis-toggle"
+          @click="openManagementAnalysis"
+        >
+          数据分析
+          <span aria-hidden="true">→</span>
+        </button>
       </div>
 
       <div class="balance-sync-bar">
@@ -29,92 +37,37 @@
         <p class="balance-sync-hint balance-panel__desktop-only">从中国石油油卡平台拉取最新余额并刷新本页</p>
       </div>
       <p class="balance-mobile-summary balance-panel__mobile-only">共 {{ balancesTotal }} 张 · 合计 {{ fmtMoney(balanceTotalAmount) }}</p>
+
+      <div class="balance-mobile-controls balance-panel__mobile-only" aria-label="油卡余额筛选">
+        <SearchableSelect
+          v-model="balanceFilter.workshop_id"
+          :options="balanceWorkshopOptions"
+          allow-empty
+          empty-label="全部车间"
+          search-placeholder="输入车间关键字…"
+        />
+        <SearchableSelect
+          v-model="balanceFilter.vehicle_id"
+          :options="balanceVehicleOptions"
+          allow-empty
+          empty-label="全部车牌"
+          search-placeholder="输入车牌号…"
+        />
+        <button type="button" class="primary balance-mobile-query-btn" :disabled="loadingBalances" @click="searchBalances">
+          {{ loadingBalances ? '查询中' : '查询' }}
+        </button>
+        <button
+          type="button"
+          class="ghost balance-analysis-toggle balance-analysis-toggle--mobile"
+          @click="openManagementAnalysis"
+        >
+          数据分析
+          <span aria-hidden="true">→</span>
+        </button>
+      </div>
+
       <div v-if="syncStatus" class="sync-status">{{ syncStatus }}</div>
       <div v-if="msg" class="msg">{{ msg }}</div>
-
-      <section class="balance-overview balance-panel__desktop-only" aria-label="余额统计总览">
-        <article class="balance-kpi">
-          <div class="balance-kpi__label">当前列表卡数</div>
-          <div class="balance-kpi__value">{{ balancesTotal }}</div>
-          <div class="balance-kpi__hint">受车间与余额区间筛选影响</div>
-        </article>
-        <article class="balance-kpi balance-kpi--amount">
-          <div class="balance-kpi__label">当前列表合计</div>
-          <div class="balance-kpi__value">{{ fmtMoney(balanceTotalAmount) }}</div>
-          <div class="balance-kpi__hint">平均单卡 {{ fmtMoney(averageBalanceAmount) }}</div>
-        </article>
-        <article class="balance-kpi">
-          <div class="balance-kpi__label">全部油卡总览</div>
-          <div class="balance-kpi__value">{{ overallCount }}</div>
-          <div class="balance-kpi__hint">总余额 {{ fmtMoney(overallSum) }} · 0余额 {{ zeroBucket?.count ?? 0 }} 张</div>
-        </article>
-      </section>
-
-      <div class="balance-charts balance-panel__desktop-only">
-        <article class="chart chart--donut" aria-label="油卡余额区间分布图">
-          <div class="ct">余额区间分布 <span class="ct-hint">· 点击筛选表格</span></div>
-          <div class="balance-chart__body">
-            <div class="donut" role="img" aria-label="油卡余额区间占比环形图">
-              <svg viewBox="0 0 140 140" class="donut__svg">
-                <g transform="rotate(-90 70 70)">
-                  <circle class="donut__track" cx="70" cy="70" r="54" />
-                  <circle
-                    v-for="seg in donutSegments"
-                    :key="`donut-${seg.key}`"
-                    class="donut__seg"
-                    cx="70"
-                    cy="70"
-                    r="54"
-                    :stroke="seg.color"
-                    :stroke-dasharray="seg.dasharray"
-                    :stroke-dashoffset="seg.dashoffset"
-                  />
-                </g>
-              </svg>
-              <div class="donut__center">
-                <span class="donut__center-num">{{ overallCount }}</span>
-                <span class="donut__center-label">张油卡</span>
-                <span class="donut__center-amount">{{ fmtMoney(overallSum) }}</span>
-              </div>
-            </div>
-            <ul class="legend">
-              <li v-for="seg in donutSegments" :key="`legend-${seg.key}`">
-                <button
-                  type="button"
-                  class="legend__row"
-                  :class="{ 'is-active': activeBucketKey === seg.key }"
-                  @click="applyBucketFilter(seg)"
-                >
-                  <span class="legend__dot" :style="{ background: seg.color }" />
-                  <span class="legend__label">{{ seg.label }}</span>
-                  <span class="legend__count">{{ seg.count }} 张</span>
-                  <span class="legend__pct">{{ seg.pct.toFixed(1) }}%</span>
-                </button>
-              </li>
-            </ul>
-          </div>
-        </article>
-
-        <article class="chart chart--bars" aria-label="全部油卡余额条形图">
-          <div class="ct">全部油卡余额条形图 <span class="ct-hint">· 按合计余额区间统计</span></div>
-          <div class="bars balance-bars">
-            <button
-              v-for="(seg, idx) in donutSegments"
-              :key="`bucket-bar-${seg.key}`"
-              type="button"
-              class="bar-row bar-row--interactive"
-              :class="{ 'bar-row--active': activeBucketKey === seg.key }"
-              @click="applyBucketFilter(seg)"
-            >
-              <div class="bar-label">{{ seg.label }}</div>
-              <div class="bar-track" aria-hidden="true">
-                <div class="bar-fill" :style="chartBarFillStyle(seg.count, bucketMaxCount, idx)" />
-              </div>
-              <div class="bar-value">{{ seg.count }} 张 · {{ fmtMoney(seg.amount) }}</div>
-            </button>
-          </div>
-        </article>
-      </div>
 
       <div class="rec-toolbar balance-toolbar">
         <div class="rec-filters">
@@ -199,24 +152,31 @@
           <li v-for="(b, idx) in balances" :key="`bal-m-${b.id}`" class="balance-card">
             <div class="balance-card__head">
               <span class="balance-card__seq">{{ rowSeq(idx) }}</span>
-              <span class="balance-card__no">{{ b.card_no }}</span>
-              <strong class="balance-card__sum">{{ fmtMoney(b.total) }}</strong>
+              <div class="balance-card__identity">
+                <div class="balance-card__primary">
+                  <strong class="balance-card__workshop">{{ displayWorkshop(b.workshop) }}</strong>
+                  <span class="balance-card__vehicle">{{ b.vehicle_no || '未关联车号' }}</span>
+                </div>
+                <div class="balance-card__no">
+                  <span>卡号</span>
+                  <strong>{{ b.card_no }}</strong>
+                </div>
+              </div>
+              <div class="balance-card__amount">
+                <span>可用余额</span>
+                <strong class="balance-card__sum">{{ fmtMoney(b.total) }}</strong>
+              </div>
             </div>
-            <p class="balance-card__sub">
-              <span>{{ displayWorkshop(b.workshop) }}</span>
-              <span class="balance-card__sep" aria-hidden="true">·</span>
-              <span>{{ b.vehicle_no || '—' }}</span>
-            </p>
-            <p class="balance-card__extra">
-              金额 {{ fmtMoney(b.amount) }}
-              <span class="balance-card__sep" aria-hidden="true">·</span>
-              <span :class="{ 'reserve-hl': hasReserve(b.reserve_fund) }">备用金 {{ fmtMoney(b.reserve_fund) }}</span>
-            </p>
+          </li>
+          <li ref="balanceMobileLoadMoreRef" class="balance-scroll-loader">
+            <span v-if="loadingMoreBalances">正在加载更多油卡…</span>
+            <span v-else-if="balances.length < balancesTotal">继续下滑加载 · 已显示 {{ balances.length }} / {{ balancesTotal }} 张</span>
+            <span v-else>已加载全部 {{ balancesTotal }} 张油卡</span>
           </li>
         </ul>
       </div>
 
-      <div v-if="balancesTotal > 0 && !loadingBalances" class="rec-pager">
+      <div v-if="balancesTotal > 0 && !loadingBalances && !isMobileBalance" class="rec-pager">
         <span class="pager-meta">每页 15 条</span>
         <button type="button" class="ghost pager-btn" :disabled="balancePage <= 1" @click="prevBalancePage">上一页</button>
         <span class="pager-meta">第 {{ balancePage }} / {{ balanceTotalPages }} 页</span>
@@ -229,14 +189,22 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 
 import * as fuelApi from '@/api/fuel'
 import SearchableSelect, { type SearchableOption } from '@/components/SearchableSelect.vue'
 import type { FuelBalance, FuelBalanceBucket } from '@/api/fuel'
 
+const router = useRouter()
+
+function openManagementAnalysis() {
+  void router.push({ name: 'managementAnalysis', query: { scope: 'fuel' } })
+}
+
 const balances = ref<FuelBalance[]>([])
 const balanceWorkshops = ref<string[]>([])
+const balanceVehicles = ref<string[]>([])
 const balanceBuckets = ref<FuelBalanceBucket[]>([])
 const msg = ref('')
 const syncStatus = ref('')
@@ -250,81 +218,28 @@ const balancesTotal = ref(0)
 const balanceTotalAmount = ref('0')
 const balancePage = ref(1)
 const BALANCE_PAGE_SIZE = 15
+const MOBILE_BALANCE_BATCH_SIZE = 40
+const isMobileBalance = ref(typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches)
+const loadingMoreBalances = ref(false)
+const balanceMobileLoadMoreRef = ref<HTMLElement | null>(null)
+const mobileBalancePage = ref(1)
+let mobileBalanceMediaQuery: MediaQueryList | null = null
+let mobileBalanceLoadObserver: IntersectionObserver | null = null
 
 const balanceFilter = reactive({
   workshop_id: 0,
+  vehicle_id: 0,
   total_min: '' as string | number,
   total_max: '' as string | number,
 })
 const balanceSort = reactive({
-  by: 'card_no' as 'card_no' | 'workshop' | 'vehicle_no' | 'amount' | 'reserve_fund' | 'total',
+  by: 'workshop' as 'card_no' | 'workshop' | 'vehicle_no' | 'amount' | 'reserve_fund' | 'total',
   dir: 'asc' as 'asc' | 'desc',
 })
 
 const balanceTotalPages = computed(() =>
   Math.max(1, Math.ceil(balancesTotal.value / BALANCE_PAGE_SIZE) || 1),
 )
-const averageBalanceAmount = computed(() =>
-  balancesTotal.value ? Number(balanceTotalAmount.value || 0) / balancesTotal.value : 0,
-)
-
-const overallCount = computed(() =>
-  safeBalanceBuckets.value.reduce((sum, bucket) => sum + bucket.count, 0),
-)
-const overallSum = computed(() =>
-  safeBalanceBuckets.value.reduce((sum, bucket) => sum + Number(bucket.sum || 0), 0),
-)
-const safeBalanceBuckets = computed(() => (Array.isArray(balanceBuckets.value) ? balanceBuckets.value : []))
-const zeroBucket = computed(() => safeBalanceBuckets.value.find((bucket) => bucket.key === 'zero'))
-const bucketMaxCount = computed(() => Math.max(...safeBalanceBuckets.value.map((bucket) => bucket.count), 0))
-
-const DONUT_C = 2 * Math.PI * 54
-const BAR_FILL_GRADIENTS = [
-  'linear-gradient(90deg, rgba(201, 100, 66, 0.32) 0%, #c96442 94%)',
-  'linear-gradient(90deg, rgba(215, 119, 87, 0.35) 0%, #d97757 94%)',
-  'linear-gradient(90deg, rgba(181, 138, 90, 0.4) 0%, #9a7340 92%)',
-  'linear-gradient(90deg, rgba(201, 161, 91, 0.42) 0%, #b8883a 92%)',
-  'linear-gradient(90deg, rgba(94, 93, 89, 0.28) 0%, #6b5d4b 94%)',
-  'linear-gradient(90deg, rgba(167, 107, 82, 0.38) 0%, #a76b52 92%)',
-  'linear-gradient(90deg, rgba(77, 76, 72, 0.32) 0%, #5c5347 92%)',
-] as const
-const DONUT_COLORS = ['#c96442', '#d97757', '#9a7340', '#b8883a', '#6b5d4b', '#a76b52', '#5c5347'] as const
-
-type DonutSegment = {
-  key: string
-  label: string
-  color: string
-  count: number
-  amount: number
-  pct: number
-  filterMin: string | number | null
-  filterMax: string | number | null
-  dasharray: string
-  dashoffset: number
-}
-
-const donutSegments = computed<DonutSegment[]>(() => {
-  const total = overallCount.value || 1
-  let acc = 0
-  return safeBalanceBuckets.value.map((bucket, idx) => {
-    const len = (bucket.count / total) * DONUT_C
-    const seg: DonutSegment = {
-      key: bucket.key,
-      label: bucket.label,
-      color: DONUT_COLORS[idx % DONUT_COLORS.length],
-      count: bucket.count,
-      amount: Number(bucket.sum || 0),
-      filterMin: bucket.filter_min,
-      filterMax: bucket.filter_max,
-      pct: overallCount.value ? (bucket.count / overallCount.value) * 100 : 0,
-      dasharray: `${len} ${DONUT_C}`,
-      dashoffset: -acc,
-    }
-    acc += len
-    return seg
-  })
-})
-
 function normalizePriceInput(raw: string | number | null | undefined): string {
   return String(raw ?? '').trim()
 }
@@ -365,36 +280,36 @@ function normalizeBalanceBuckets(res: fuelApi.FuelBalancePage): FuelBalanceBucke
   return []
 }
 
-const activeBucketKey = computed(() => {
-  const minVal = normalizePriceInput(balanceFilter.total_min)
-  const maxVal = normalizePriceInput(balanceFilter.total_max)
-  return donutSegments.value.find((seg) => String(seg.filterMin ?? '') === minVal && String(seg.filterMax ?? '') === maxVal)?.key ?? ''
+const workshopNameCollator = new Intl.Collator('zh-CN-u-co-pinyin', {
+  usage: 'sort',
+  sensitivity: 'base',
+  numeric: true,
 })
 
-function barFillStyle(index: number): Record<string, string> {
-  return {
-    background: BAR_FILL_GRADIENTS[index % BAR_FILL_GRADIENTS.length],
-    boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.32)',
-  }
-}
-
-function chartBarFillStyle(value: number, max: number, idx: number): Record<string, string> {
-  const m = max > 0 ? max : 1
-  const pct = (value / m) * 100
-  return { width: `${pct}%`, ...barFillStyle(idx) }
-}
-
 const balanceWorkshopOptions = computed<SearchableOption[]>(() =>
-  balanceWorkshops.value.map((unit, idx) => ({
+  [...balanceWorkshops.value].sort((a, b) => workshopNameCollator.compare(a, b)).map((unit, idx) => ({
     id: idx + 1,
     label: unit,
     keywords: unit,
   })),
 )
 
+const balanceVehicleOptions = computed<SearchableOption[]>(() =>
+  [...balanceVehicles.value].sort((a, b) => workshopNameCollator.compare(a, b)).map((vehicle, idx) => ({
+    id: idx + 1,
+    label: vehicle,
+    keywords: vehicle,
+  })),
+)
+
 function selectedBalanceWorkshopName(): string {
   if (!balanceFilter.workshop_id) return ''
   return balanceWorkshopOptions.value.find((x) => x.id === balanceFilter.workshop_id)?.label ?? ''
+}
+
+function selectedBalanceVehicleName(): string {
+  if (!balanceFilter.vehicle_id) return ''
+  return balanceVehicleOptions.value.find((x) => x.id === balanceFilter.vehicle_id)?.label ?? ''
 }
 
 function monthStartIso() {
@@ -408,9 +323,12 @@ function todayIso() {
 
 function formatLastSynced(raw: string | null) {
   if (!raw) return '暂无记录'
-  const d = new Date(raw)
+  // SQLite 可能将 UTC 时间序列化为无时区字符串；无时区时明确按 UTC 解析。
+  const normalized = /(?:Z|[+-]\d{2}:\d{2})$/i.test(raw) ? raw : `${raw}Z`
+  const d = new Date(normalized)
   if (Number.isNaN(d.getTime())) return raw
   return d.toLocaleString('zh-CN', {
+    timeZone: 'Asia/Shanghai',
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
@@ -456,7 +374,12 @@ async function syncBalancesFromPlatform() {
 
   syncStatus.value = '同步完成，正在刷新余额…'
   try {
-    balanceWorkshops.value = await fuelApi.listFuelBalanceWorkshops()
+    const [workshops, vehicles] = await Promise.all([
+      fuelApi.listFuelBalanceWorkshops(),
+      fuelApi.listFuelBalanceVehicles(),
+    ])
+    balanceWorkshops.value = workshops
+    balanceVehicles.value = vehicles
     await fetchBalancePage()
     await loadSyncStats()
     syncStatus.value = ''
@@ -472,7 +395,12 @@ async function reload() {
   msg.value = ''
   loadingBalances.value = true
   try {
-    balanceWorkshops.value = await fuelApi.listFuelBalanceWorkshops()
+    const [workshops, vehicles] = await Promise.all([
+      fuelApi.listFuelBalanceWorkshops(),
+      fuelApi.listFuelBalanceVehicles(),
+    ])
+    balanceWorkshops.value = workshops
+    balanceVehicles.value = vehicles
     if (balancePage.value > balanceTotalPages.value) balancePage.value = 1
     await Promise.all([fetchBalancePage(), loadSyncStats()])
   } catch {
@@ -482,30 +410,99 @@ async function reload() {
   }
 }
 
-async function fetchBalancePage() {
-  loadingBalances.value = true
+async function fetchBalancePage(append = false) {
+  if (append) loadingMoreBalances.value = true
+  else loadingBalances.value = true
   try {
     const workshop = selectedBalanceWorkshopName()
-    const minVal = parsePrice(balanceFilter.total_min)
-    const maxVal = parsePrice(balanceFilter.total_max)
-    const res = await fuelApi.listFuelBalancesPaged({
-      page: balancePage.value,
-      page_size: BALANCE_PAGE_SIZE,
+    const vehicle = selectedBalanceVehicleName()
+    const minVal = isMobileBalance.value ? null : parsePrice(balanceFilter.total_min)
+    const maxVal = isMobileBalance.value ? null : parsePrice(balanceFilter.total_max)
+    const filters = {
       ...(workshop ? { workshop } : {}),
+      ...(vehicle ? { vehicle_no: vehicle } : {}),
       ...(minVal !== null ? { total_min: minVal } : {}),
       ...(maxVal !== null ? { total_max: maxVal } : {}),
-      sort_by: balanceSort.by,
-      sort_dir: balanceSort.dir,
+    }
+    const mobilePage = append ? mobileBalancePage.value + 1 : 1
+    const useClientWorkshopSort = !isMobileBalance.value && balanceSort.by === 'workshop'
+    const res = await fuelApi.listFuelBalancesPaged({
+      page: isMobileBalance.value ? mobilePage : useClientWorkshopSort ? 1 : balancePage.value,
+      page_size: isMobileBalance.value || useClientWorkshopSort ? MOBILE_BALANCE_BATCH_SIZE : BALANCE_PAGE_SIZE,
+      ...filters,
+      sort_by: isMobileBalance.value || useClientWorkshopSort ? 'workshop' : balanceSort.by,
+      sort_dir: isMobileBalance.value || useClientWorkshopSort ? 'asc' : balanceSort.dir,
     })
-    balances.value = res.items
+
+    if (isMobileBalance.value) {
+      balances.value = append ? [...balances.value, ...res.items] : res.items
+      mobileBalancePage.value = mobilePage
+      balancePage.value = 1
+    } else if (useClientWorkshopSort) {
+      const allItems = [...res.items]
+      let nextPage = 2
+      while (allItems.length < res.total) {
+        const next = await fuelApi.listFuelBalancesPaged({
+          page: nextPage,
+          page_size: MOBILE_BALANCE_BATCH_SIZE,
+          ...filters,
+          sort_by: 'workshop',
+          sort_dir: 'asc',
+        })
+        if (!next.items.length) break
+        allItems.push(...next.items)
+        nextPage += 1
+      }
+      const sortedItems = allItems.sort((a, b) =>
+        workshopNameCollator.compare(displayWorkshop(a.workshop), displayWorkshop(b.workshop)) ||
+        workshopNameCollator.compare(a.vehicle_no || '', b.vehicle_no || '') ||
+        workshopNameCollator.compare(a.card_no, b.card_no),
+      )
+      if (balanceSort.dir === 'desc') sortedItems.reverse()
+      const start = (balancePage.value - 1) * BALANCE_PAGE_SIZE
+      balances.value = sortedItems.slice(start, start + BALANCE_PAGE_SIZE)
+    } else {
+      balances.value = res.items
+    }
     balancesTotal.value = res.total
     balanceTotalAmount.value = res.total_amount
     balanceBuckets.value = normalizeBalanceBuckets(res)
     const maxPage = Math.max(1, Math.ceil(res.total / BALANCE_PAGE_SIZE) || 1)
     if (balancePage.value > maxPage) balancePage.value = maxPage
+    return true
+  } catch {
+    if (append) msg.value = '加载更多油卡失败，请继续下滑重试'
+    throw new Error('load fuel balances failed')
   } finally {
-    loadingBalances.value = false
+    if (append) loadingMoreBalances.value = false
+    else loadingBalances.value = false
+    await nextTick()
+    setupMobileBalanceObserver()
   }
+}
+
+async function loadMoreBalances() {
+  if (!isMobileBalance.value || loadingBalances.value || loadingMoreBalances.value || balances.value.length >= balancesTotal.value) return
+  try {
+    await fetchBalancePage(true)
+  } catch {
+    // 错误文案已在 fetchBalancePage 中设置，保留当前列表供继续下滑重试。
+  }
+}
+
+function setupMobileBalanceObserver() {
+  mobileBalanceLoadObserver?.disconnect()
+  mobileBalanceLoadObserver = null
+  if (!isMobileBalance.value || typeof IntersectionObserver === 'undefined') return
+  const target = balanceMobileLoadMoreRef.value
+  if (!target) return
+  mobileBalanceLoadObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) void loadMoreBalances()
+    },
+    { rootMargin: '120px 0px' },
+  )
+  mobileBalanceLoadObserver.observe(target)
 }
 
 function toggleBalanceSort(
@@ -538,25 +535,11 @@ function displayWorkshop(workshop: string) {
 }
 
 function rowSeq(idx: number) {
-  return (balancePage.value - 1) * BALANCE_PAGE_SIZE + idx + 1
+  return (isMobileBalance.value ? 0 : (balancePage.value - 1) * BALANCE_PAGE_SIZE) + idx + 1
 }
 
 function hasReserve(v: string | number) {
   return Number(v || 0) > 0
-}
-
-function applyBucketFilter(bucket: DonutSegment) {
-  const minValue = String(bucket.filterMin ?? '')
-  const maxValue = String(bucket.filterMax ?? '')
-  if (balanceFilter.total_min === minValue && balanceFilter.total_max === maxValue) {
-    balanceFilter.total_min = ''
-    balanceFilter.total_max = ''
-  } else {
-    balanceFilter.total_min = minValue
-    balanceFilter.total_max = maxValue
-  }
-  balancePage.value = 1
-  void fetchBalancePage()
 }
 
 function searchBalances() {
@@ -566,6 +549,7 @@ function searchBalances() {
 
 function resetBalanceFilter() {
   balanceFilter.workshop_id = 0
+  balanceFilter.vehicle_id = 0
   balanceFilter.total_min = ''
   balanceFilter.total_max = ''
   balancePage.value = 1
@@ -584,8 +568,24 @@ function nextBalancePage() {
   void fetchBalancePage()
 }
 
+function handleMobileBalanceChange(event: MediaQueryListEvent) {
+  if (isMobileBalance.value === event.matches) return
+  isMobileBalance.value = event.matches
+  if (!event.matches) balanceFilter.vehicle_id = 0
+  balancePage.value = 1
+  void fetchBalancePage()
+}
+
 onMounted(() => {
+  mobileBalanceMediaQuery = window.matchMedia('(max-width: 768px)')
+  isMobileBalance.value = mobileBalanceMediaQuery.matches
+  mobileBalanceMediaQuery.addEventListener('change', handleMobileBalanceChange)
   void reload()
+})
+
+onBeforeUnmount(() => {
+  mobileBalanceLoadObserver?.disconnect()
+  mobileBalanceMediaQuery?.removeEventListener('change', handleMobileBalanceChange)
 })
 </script>
 
@@ -611,6 +611,14 @@ onMounted(() => {
   box-sizing: border-box;
 }
 
+.balance-scroll-loader {
+  list-style: none;
+  padding: 10px 12px;
+  text-align: center;
+  color: var(--cl-olive);
+  font-size: 12px;
+}
+
 .balance-toolbar {
   margin-top: 2px;
 }
@@ -633,6 +641,31 @@ onMounted(() => {
 .hd--split {
   flex-wrap: wrap;
   row-gap: 8px;
+}
+
+.balance-analysis-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 104px;
+  white-space: nowrap;
+}
+
+.balance-analysis-toggle.is-active {
+  border-color: var(--cl-brand);
+  color: var(--cl-brand);
+  background: rgba(201, 100, 66, 0.07);
+}
+
+.balance-analysis-toggle--mobile {
+  display: none;
+}
+
+.balance-analysis {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .balance-overview {
@@ -1299,9 +1332,9 @@ th {
 }
 
 .balance-card__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
   gap: 12px;
 }
 
@@ -1323,15 +1356,69 @@ th {
   line-height: 1;
 }
 
-.balance-card__no {
-  flex: 1;
+.balance-card__identity {
   min-width: 0;
-  font-size: 13px;
-  font-weight: 700;
+}
+
+.balance-card__primary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 9px;
+}
+
+.balance-card__workshop {
   color: var(--cl-near-black);
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.balance-card__vehicle {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 1px 8px;
+  border: 1px solid var(--cl-border-warm);
+  border-radius: 6px;
+  color: var(--cl-charcoal);
+  background: var(--cl-warm-sand);
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.2;
+}
+
+.balance-card__no {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 6px;
+  color: var(--cl-olive);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.balance-card__no strong {
+  min-width: 0;
+  color: var(--cl-charcoal);
+  font-size: 12px;
+  font-weight: 650;
   word-break: break-all;
-  line-height: 1.35;
   font-variant-numeric: tabular-nums;
+}
+
+.balance-card__amount {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  padding-left: 8px;
+}
+
+.balance-card__amount > span {
+  color: var(--cl-olive);
+  font-size: 10px;
+  white-space: nowrap;
 }
 
 .balance-card__sum {
@@ -1339,27 +1426,6 @@ th {
   font-size: 15px;
   font-weight: 800;
   color: var(--cl-brand, #c96442);
-  font-variant-numeric: tabular-nums;
-}
-
-.balance-card__sub,
-.balance-card__extra {
-  margin: 6px 0 0;
-  font-size: 13px;
-  line-height: 1.45;
-  color: var(--cl-charcoal);
-}
-
-.balance-card__sub {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 6px;
-}
-
-.balance-card__extra {
-  font-size: 12px;
-  color: var(--cl-olive);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1466,9 +1532,24 @@ th {
 }
 
 @media (max-width: 768px) {
+  .stack.fuel-view {
+    height: 100%;
+    min-height: 0;
+    gap: 0;
+  }
+
   .panel {
-    padding: 12px;
+    padding: 10px;
     border-radius: 14px;
+  }
+
+  .balance-panel {
+    height: 100%;
+    min-height: 0;
+    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 
   .balance-panel__desktop-only {
@@ -1484,17 +1565,59 @@ th {
   }
 
   .hd {
-    margin-bottom: 8px;
+    display: none;
   }
 
   .balance-sync-bar {
-    padding: 12px;
-    margin-bottom: 10px;
+    flex: 0 0 auto;
+    padding: 7px;
+    margin: 0 0 6px;
+    border-radius: 11px;
+  }
+
+  .balance-sync-bar__main {
+    display: grid;
+    grid-template-columns: minmax(106px, 0.72fr) minmax(0, 1.28fr);
+    align-items: stretch;
+    gap: 7px;
   }
 
   .balance-sync-btn {
-    min-height: 48px;
-    font-size: 16px;
+    width: 100%;
+    min-height: 38px;
+    padding: 7px 9px;
+    border-radius: 9px;
+    font-size: 13px;
+    box-shadow: none;
+  }
+
+  .balance-sync-stats {
+    display: grid;
+    grid-template-columns: minmax(54px, 0.62fr) minmax(0, 1.38fr);
+    gap: 5px;
+  }
+
+  .balance-sync-stat {
+    min-width: 0;
+    padding: 5px 6px;
+    border-radius: 8px;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 0;
+  }
+
+  .balance-sync-stat__label {
+    font-size: 9px;
+    font-weight: 600;
+  }
+
+  .balance-sync-stat__value,
+  .balance-sync-stat--time .balance-sync-stat__value {
+    width: 100%;
+    font-size: 10px;
+    line-height: 1.25;
+    text-align: left;
   }
 
   .balance-sync-hint {
@@ -1502,11 +1625,7 @@ th {
   }
 
   .rec-toolbar {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
-    margin-bottom: 10px;
-    padding: 10px;
+    display: none;
   }
 
   .rec-filters {
@@ -1589,16 +1708,135 @@ th {
     width: 100%;
   }
 
+  .balance-mobile-summary {
+    flex: 0 0 auto;
+    margin: 0 2px 6px;
+    font-size: 12px;
+    line-height: 1.25;
+  }
+
+  .balance-mobile-controls {
+    flex: 0 0 auto;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+    gap: 6px;
+    margin-bottom: 7px;
+  }
+
+  .balance-mobile-controls :deep(.searchable-select) {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    flex: none;
+  }
+
+  .balance-mobile-controls :deep(.searchable-select__trigger) {
+    min-height: 38px;
+    height: 38px;
+    padding: 7px 10px;
+    border-radius: 9px;
+    font-size: 13px;
+  }
+
+  .balance-mobile-query-btn {
+    min-height: 38px;
+    padding: 7px 11px;
+    border-radius: 9px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .balance-analysis-toggle--mobile {
+    display: inline-flex;
+    width: 100%;
+    min-width: 0;
+    min-height: 38px;
+    padding: 7px 9px;
+    border-radius: 9px;
+    font-size: 13px;
+  }
+
+  .balance-analysis {
+    flex: 0 1 auto;
+    max-height: min(58vh, 560px);
+    margin-bottom: 7px;
+    padding: 8px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    border: 1px solid rgba(201, 100, 66, 0.2);
+    border-radius: 12px;
+    background: rgba(255, 253, 249, 0.96);
+  }
+
+  .balance-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    margin: 0 0 8px;
+  }
+
+  .balance-kpi {
+    min-width: 0;
+    padding: 8px 9px;
+  }
+
+  .balance-kpi:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .balance-kpi__hint {
+    line-height: 1.35;
+  }
+
+  .balance-charts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 7px;
+    margin-bottom: 0;
+  }
+
+  .chart {
+    padding: 9px;
+  }
+
+  .balance-chart__body {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .donut {
+    align-self: center;
+  }
+
+  .bar-row {
+    grid-template-columns: minmax(66px, 24%) minmax(0, 1fr) minmax(96px, 124px);
+    gap: 6px;
+  }
+
+  .bar-value {
+    font-size: 11px;
+  }
+
   .balance-mobile {
-    display: block;
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .balance-cards {
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
     gap: 0;
     border: 1px solid var(--cl-border-cream);
     border-radius: 12px;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
     background: var(--cl-white);
+    scrollbar-gutter: stable;
   }
 
   .balance-card {
@@ -1619,7 +1857,9 @@ th {
   }
 
   .balance-mobile__hint {
-    margin: 0 0 8px;
+    width: 100%;
+    margin: 0;
+    align-self: center;
   }
 
   .rec-pager {
@@ -1642,6 +1882,19 @@ th {
 
   .pager-meta {
     text-align: center;
+  }
+}
+
+@media (max-width: 430px) {
+  .balance-card__head {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .balance-card__amount {
+    grid-column: 2;
+    align-items: flex-start;
+    padding-left: 0;
+    margin-top: 2px;
   }
 }
 </style>

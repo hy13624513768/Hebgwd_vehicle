@@ -1,59 +1,5 @@
 <template>
   <div class="drivers-view">
-    <section v-if="stats" class="driver-overview" aria-label="驾驶员统计">
-      <div class="driver-overview__kpi">
-        <span class="driver-overview__kpi-label">在册驾驶员</span>
-        <strong class="driver-overview__kpi-num">{{ stats.total }}</strong>
-        <span class="driver-overview__kpi-breakdown">
-          本单位驾驶员 <strong>{{ employmentKpi.internal }}</strong> 人，
-          外包驾驶员 <strong>{{ employmentKpi.outsourced }}</strong> 人
-        </span>
-        <span class="driver-overview__kpi-hint">（筛选结果共 {{ totalCount }} 条）</span>
-      </div>
-
-      <div class="driver-charts" aria-label="驾驶员分布图表">
-        <div class="driver-chart driver-chart--bars">
-          <h3 class="driver-chart__title">车间分布</h3>
-          <p v-if="!workshopChips.length" class="driver-chart__empty">暂无车间分布数据</p>
-          <ul v-else class="driver-chart__bar-list driver-chart__bar-list--scroll" role="list">
-            <li v-for="([label, cnt], idx) in workshopChips" :key="'ws-bar-' + label" class="driver-chart__bar-row" role="listitem">
-              <span class="driver-chart__bar-label" :title="label">{{ label }}</span>
-              <div class="driver-chart__bar-track" :title="`${label}：${cnt} 人`">
-                <div class="driver-chart__bar-fill" :style="workshopBarFillStyle(cnt, idx)" />
-              </div>
-              <span class="driver-chart__bar-val">{{ cnt }}</span>
-            </li>
-          </ul>
-        </div>
-        <div class="driver-chart driver-chart--bars">
-          <h3 class="driver-chart__title">准驾类型分布</h3>
-          <p v-if="!licenseChips.length" class="driver-chart__empty">暂无准驾类型数据</p>
-          <ul v-else class="driver-chart__bar-list driver-chart__bar-list--scroll" role="list">
-            <li v-for="([label, cnt], idx) in licenseChips" :key="'bar-' + label" class="driver-chart__bar-row" role="listitem">
-              <span class="driver-chart__bar-label" :title="label">{{ label }}</span>
-              <div class="driver-chart__bar-track" :title="`${label}：${cnt} 人`">
-                <div class="driver-chart__bar-fill" :style="licenseBarFillStyle(cnt, idx)" />
-              </div>
-              <span class="driver-chart__bar-val">{{ cnt }}</span>
-            </li>
-          </ul>
-        </div>
-        <div class="driver-chart driver-chart--bars">
-          <h3 class="driver-chart__title">年龄分布</h3>
-          <p v-if="!ageChips.length" class="driver-chart__empty">暂无年龄分布数据</p>
-          <ul v-else class="driver-chart__bar-list driver-chart__bar-list--scroll" role="list">
-            <li v-for="([label, cnt], idx) in ageChips" :key="'age-bar-' + label" class="driver-chart__bar-row" role="listitem">
-              <span class="driver-chart__bar-label" :title="label">{{ label }}</span>
-              <div class="driver-chart__bar-track" :title="`${label}：${cnt} 人`">
-                <div class="driver-chart__bar-fill" :style="ageBarFillStyle(cnt, idx)" />
-              </div>
-              <span class="driver-chart__bar-val">{{ cnt }}</span>
-            </li>
-          </ul>
-        </div>
-      </div>
-    </section>
-
     <div class="toolbar">
       <div class="toolbar__search-wrap">
         <span class="toolbar__search-icon" aria-hidden="true">
@@ -81,7 +27,7 @@
             class="toolbar-select"
             :options="workshopFilterOptions"
             allow-empty
-            empty-label="全部"
+            empty-label="全部车间"
             search-placeholder="输入车间关键字…"
           />
         </div>
@@ -92,13 +38,21 @@
             class="toolbar-select"
             :options="licenseTypeOptions"
             allow-empty
-            empty-label="全部"
+            empty-label="全部驾驶员"
             search-placeholder="输入准驾关键字…"
           />
         </div>
       </div>
       <div class="toolbar__actions">
         <button type="button" class="primary toolbar__btn-query" :disabled="loading" @click="loadList">查询</button>
+        <button
+          type="button"
+          class="ghost toolbar__btn-analysis"
+          @click="openManagementAnalysis"
+        >
+          数据分析
+          <span aria-hidden="true">→</span>
+        </button>
         <button
           v-if="canEditDriverRecords"
           type="button"
@@ -120,7 +74,6 @@
       <table class="tbl tbl--desktop">
         <thead>
           <tr>
-            <th class="col-narrow">序号</th>
             <th>姓名</th>
             <th>电话</th>
             <th>准驾</th>
@@ -130,30 +83,54 @@
             <th>身份证号</th>
             <th>健康体检报告</th>
             <th>外包人员入职手续</th>
-            <th>首次入职</th>
-            <th v-if="canEditDriverRecords" class="w">操作</th>
+            <th class="w">操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="rows.length === 0">
-            <td :colspan="canEditDriverRecords ? 12 : 11" class="empty-hint">暂无数据，可调整筛选后点击查询。</td>
+            <td colspan="10" class="empty-hint">暂无数据，可调整筛选后点击查询。</td>
           </tr>
-          <tr v-for="(d, idx) in rows" :key="d.id">
-            <td class="muted">{{ displayRowSeq(idx) }}</td>
-            <td class="strong">{{ d.name }}</td>
-            <td>{{ d.phone }}</td>
-            <td>{{ d.license_type || '—' }}</td>
-            <td>{{ driverWorkshopLabel(d) }}</td>
-            <td>{{ driverEmploymentStatusLabel(d) }}</td>
-            <td>{{ formatAgeFromIdCard(d.id_card) }}</td>
-            <td class="mono">{{ d.id_card || '—' }}</td>
-            <td class="col-long" :title="d.health_check_report || ''">{{ trunc(d.health_check_report, 24) }}</td>
-            <td class="col-long" :title="d.outsourcing_onboarding || ''">{{ trunc(d.outsourcing_onboarding, 24) }}</td>
-            <td>{{ d.first_hire_date ? fmtDate(d.first_hire_date) : '—' }}</td>
-            <td v-if="canEditDriverRecords" class="w">
-              <button type="button" class="link" @click="openEdit(d)">编辑</button>
-              <button type="button" class="link danger" @click="onDelete(d)">删除</button>
+          <template v-for="group in driverGroups" :key="`desktop-${group.workshop}`">
+          <tr class="driver-workshop-row">
+            <td colspan="10"><strong>{{ group.workshop }}</strong><span>{{ group.items.length }} 人</span></td>
+          </tr>
+          <tr v-for="item in group.items" :key="item.driver.id" :class="{ 'is-restricted': item.driver.is_restricted }">
+            <template v-if="!item.driver.is_restricted">
+            <td class="strong">{{ item.driver.name }}</td>
+            <td>{{ item.driver.phone }}</td>
+            <td>{{ item.driver.license_type || '—' }}</td>
+            <td>{{ driverWorkshopLabel(item.driver) }}</td>
+            <td>{{ driverEmploymentStatusLabel(item.driver) }}</td>
+            <td>{{ formatAgeFromIdCard(item.driver.id_card) }}</td>
+            <td class="mono">{{ item.driver.id_card || '—' }}</td>
+            <td class="col-long">
+              <button v-if="item.driver.has_health_check_report" type="button" class="link" @click="viewDocument(item.driver, 'health_check_report')">查看图片</button>
+              <span v-else>未上传</span>
             </td>
+            <td class="col-long">
+              <button v-if="item.driver.has_outsourcing_onboarding" type="button" class="link" @click="viewDocument(item.driver, 'outsourcing_onboarding')">查看图片</button>
+              <span v-else>未上传</span>
+            </td>
+            </template>
+            <template v-else>
+            <td class="strong">{{ item.driver.name }}</td>
+            <td>{{ item.driver.phone }}</td>
+            <td colspan="7" class="restricted-copy">跨车间档案 · 仅联系电话可见</td>
+            </template>
+            <td class="w">
+              <button type="button" class="link" @click="openDetails(item.driver)">查看</button>
+              <button v-if="canEditDriver(item.driver)" type="button" class="link" @click="openEdit(item.driver)">编辑</button>
+              <button v-if="canEditDriver(item.driver)" type="button" class="link danger" @click="onDelete(item.driver)">删除</button>
+            </td>
+          </tr>
+          </template>
+          <tr v-if="hasMoreDrivers" ref="driverDesktopLoadMoreRef" class="scroll-loader-row">
+            <td colspan="10">
+              {{ loadingMore ? '正在加载更多驾驶员…' : `向下滑动继续加载 · 已显示 ${rows.length} / ${totalCount} 人` }}
+            </td>
+          </tr>
+          <tr v-else-if="rows.length > 0" class="scroll-loader-row scroll-loader-row--done">
+            <td colspan="10">已加载全部 {{ totalCount }} 名驾驶员</td>
           </tr>
         </tbody>
       </table>
@@ -161,89 +138,98 @@
       <div class="driver-cards-mobile" aria-label="驾驶员列表">
         <p v-if="rows.length === 0" class="empty-hint driver-cards-mobile__empty">暂无数据，可调整筛选后点击查询。</p>
         <ul v-else class="driver-cards">
-          <li v-for="(d, idx) in rows" :key="`m-${d.id}`" class="driver-card">
+          <template v-for="group in driverGroups" :key="`mobile-${group.workshop}`">
+          <li class="driver-workshop-heading"><strong>{{ group.workshop }}</strong><span>{{ group.items.length }} 人</span></li>
+          <li v-for="item in group.items" :key="`m-${item.driver.id}`" class="driver-card">
             <div class="driver-card__top">
-              <span class="driver-card__name">{{ d.name }}</span>
-              <span class="driver-card__status">{{ driverEmploymentStatusLabel(d) }}</span>
-            </div>
-            <div class="driver-card__row">
-              <span class="driver-card__k">序号</span>
-              <span class="driver-card__v">{{ displayRowSeq(idx) }}</span>
+              <span class="driver-card__name">{{ item.driver.name }}</span>
+              <span v-if="!item.driver.is_restricted" class="driver-card__status">{{ driverEmploymentStatusLabel(item.driver) }}</span>
+              <span v-else class="driver-card__status driver-card__status--restricted">电话可见</span>
             </div>
             <div class="driver-card__row">
               <span class="driver-card__k">电话</span>
-              <span class="driver-card__v">{{ d.phone }}</span>
+              <span class="driver-card__v">{{ item.driver.phone }}</span>
             </div>
+            <template v-if="!item.driver.is_restricted">
             <div class="driver-card__row">
               <span class="driver-card__k">准驾</span>
-              <span class="driver-card__v">{{ d.license_type || '—' }}</span>
-            </div>
-            <div class="driver-card__row">
-              <span class="driver-card__k">车间</span>
-              <span class="driver-card__v">{{ driverWorkshopLabel(d) }}</span>
+              <span class="driver-card__v">{{ item.driver.license_type || '—' }}</span>
             </div>
             <div class="driver-card__row">
               <span class="driver-card__k">年龄</span>
-              <span class="driver-card__v">{{ formatAgeFromIdCard(d.id_card) }}</span>
+              <span class="driver-card__v">{{ formatAgeFromIdCard(item.driver.id_card) }}</span>
             </div>
-            <div class="driver-card__row">
+            <div class="driver-card__row driver-card__row--detail">
               <span class="driver-card__k">身份证</span>
-              <span class="driver-card__v driver-card__mono">{{ d.id_card || '—' }}</span>
+              <span class="driver-card__v driver-card__mono">{{ item.driver.id_card || '—' }}</span>
             </div>
-            <div class="driver-card__row">
+            <div class="driver-card__row driver-card__row--detail">
               <span class="driver-card__k">健康体检</span>
-              <span class="driver-card__v">{{ d.health_check_report || '—' }}</span>
+              <button v-if="item.driver.has_health_check_report" type="button" class="link driver-card__doc-link" @click="viewDocument(item.driver, 'health_check_report')">查看图片</button>
+              <span v-else class="driver-card__v">未上传</span>
             </div>
-            <div class="driver-card__row">
+            <div class="driver-card__row driver-card__row--detail">
               <span class="driver-card__k">外包手续</span>
-              <span class="driver-card__v">{{ d.outsourcing_onboarding || '—' }}</span>
+              <button v-if="item.driver.has_outsourcing_onboarding" type="button" class="link driver-card__doc-link" @click="viewDocument(item.driver, 'outsourcing_onboarding')">查看图片</button>
+              <span v-else class="driver-card__v">未上传</span>
             </div>
-            <div class="driver-card__row">
-              <span class="driver-card__k">首次入职</span>
-              <span class="driver-card__v">{{ d.first_hire_date ? fmtDate(d.first_hire_date) : '—' }}</span>
-            </div>
-            <div v-if="canEditDriverRecords" class="driver-card__actions">
-              <button type="button" class="driver-card__btn" @click="openEdit(d)">编辑</button>
-              <button type="button" class="driver-card__btn driver-card__btn--danger" @click="onDelete(d)">删除</button>
+            </template>
+            <p v-else class="driver-card__restricted">跨车间档案，其余信息已隐藏</p>
+            <div class="driver-card__actions">
+              <button type="button" class="driver-card__btn" @click="openDetails(item.driver)">查看</button>
+              <button v-if="canEditDriver(item.driver)" type="button" class="driver-card__btn" @click="openEdit(item.driver)">编辑</button>
+              <button v-if="canEditDriver(item.driver)" type="button" class="driver-card__btn driver-card__btn--danger" @click="onDelete(item.driver)">删除</button>
             </div>
           </li>
+          </template>
+          <li v-if="hasMoreDrivers" ref="driverMobileLoadMoreRef" class="scroll-loader">
+            {{ loadingMore ? '正在加载更多驾驶员…' : `向下滑动继续加载 · 已显示 ${rows.length} / ${totalCount} 人` }}
+          </li>
+          <li v-else class="scroll-loader scroll-loader--done">已加载全部 {{ totalCount }} 名驾驶员</li>
         </ul>
       </div>
     </div>
-
-      <div v-if="listLoaded" class="driver-pager">
-        <span class="driver-pager__meta driver-pager__summary">本页 {{ rows.length }} 条 · 共 {{ totalCount }} 条</span>
-        <div class="driver-pager__size-row">
-          <label class="driver-pager__label">每页</label>
-          <select
-            v-model.number="listPager.page_size"
-            class="driver-pager__size"
-            @change="onDriverPageSizeChange"
-          >
-            <option :value="10">10</option>
-            <option :value="15">15</option>
-            <option :value="20">20</option>
-            <option :value="50">50</option>
-            <option :value="100">100</option>
-          </select>
-          <span class="driver-pager__meta">条</span>
-        </div>
-        <span class="driver-pager__meta driver-pager__page">第 {{ listPager.page }} / {{ totalDriverPages }} 页</span>
-        <div class="driver-pager__nav">
-          <button type="button" class="ghost driver-pager__btn" :disabled="listPager.page <= 1" @click="prevDriverPage">
-            上一页
-          </button>
-          <button
-            type="button"
-            class="ghost driver-pager__btn"
-            :disabled="listPager.page >= totalDriverPages"
-            @click="nextDriverPage"
-          >
-            下一页
-          </button>
-        </div>
-      </div>
     </div>
+
+    <AppModal :open="detailOpen" title="驾驶员详情" @close="detailOpen = false">
+      <div v-if="detailDriver" class="driver-detail">
+        <div class="driver-detail__hero">
+          <div>
+            <span>所属车间</span>
+            <strong>{{ driverWorkshopLabel(detailDriver) }}</strong>
+          </div>
+          <div>
+            <span>驾驶员</span>
+            <strong>{{ detailDriver.name }}</strong>
+          </div>
+        </div>
+        <dl class="driver-detail__grid">
+          <div><dt>联系电话</dt><dd class="driver-detail__phone">{{ detailDriver.phone }}</dd></div>
+          <template v-if="!detailDriver.is_restricted">
+            <div><dt>准驾类型</dt><dd>{{ detailDriver.license_type || '—' }}</dd></div>
+            <div><dt>人员状态</dt><dd>{{ driverEmploymentStatusLabel(detailDriver) }}</dd></div>
+            <div><dt>年龄</dt><dd>{{ formatAgeFromIdCard(detailDriver.id_card) }}</dd></div>
+            <div class="driver-detail__wide"><dt>身份证号</dt><dd class="mono">{{ detailDriver.id_card || '—' }}</dd></div>
+            <div class="driver-detail__wide"><dt>健康体检报告</dt><dd><button v-if="detailDriver.has_health_check_report" type="button" class="link" @click="viewDocument(detailDriver, 'health_check_report')">查看图片</button><span v-else>未上传</span></dd></div>
+            <div class="driver-detail__wide"><dt>外包人员入职手续</dt><dd><button v-if="detailDriver.has_outsourcing_onboarding" type="button" class="link" @click="viewDocument(detailDriver, 'outsourcing_onboarding')">查看图片</button><span v-else>未上传</span></dd></div>
+          </template>
+        </dl>
+        <p v-if="detailDriver.is_restricted" class="driver-detail__notice">跨车间档案仅开放姓名与联系电话，其余信息已按权限隐藏。</p>
+      </div>
+      <template #footer>
+        <button type="button" class="ghost" @click="detailOpen = false">关闭</button>
+        <button v-if="detailDriver && canEditDriver(detailDriver)" type="button" class="primary" @click="editFromDetails">编辑驾驶员</button>
+      </template>
+    </AppModal>
+
+    <AppModal :open="documentPreviewOpen" :title="documentPreviewTitle" @close="closeDocumentPreview">
+      <div class="driver-document-preview">
+        <img v-if="documentPreviewUrl" :src="documentPreviewUrl" :alt="documentPreviewTitle" />
+      </div>
+      <template #footer>
+        <button type="button" class="ghost" @click="closeDocumentPreview">关闭</button>
+      </template>
+    </AppModal>
 
     <AppModal :open="modalOpen" :title="modalTitle" @close="modalOpen = false">
       <div class="form form--drivers">
@@ -318,31 +304,44 @@
         <div class="form-readonly" aria-live="polite">{{ formAgeDisplay }}</div>
 
         <label>健康体检报告</label>
-        <textarea
-          v-model.trim="form.health_check_report"
-          rows="2"
-          :readonly="!canEditDriverRecords"
-          @focus="onFieldFocus"
-          @click="onFieldClick"
-        />
+        <div class="driver-document-field">
+          <div v-if="editingId && existingHealthReport" class="driver-document-field__existing">
+            <span>已上传图片</span>
+            <button type="button" class="link" @click="viewDocumentById(editingId, 'health_check_report')">查看</button>
+            <button type="button" class="link danger" :disabled="saving" @click="removeDocument('health_check_report')">删除</button>
+          </div>
+          <MobileMediaCapture
+            ref="healthCaptureRef"
+            panel-aria-label="健康体检报告图片"
+            photo-heading=""
+            photo-hint="拍照或选择 JPG、PNG、WebP 图片；保存驾驶员后自动上传。"
+            photo-file-base="health_check_report"
+            single-photo
+            compact
+            :max-file-mb="20"
+            :show-photo-download="false"
+          />
+        </div>
 
         <label>外包人员入职手续</label>
-        <textarea
-          v-model.trim="form.outsourcing_onboarding"
-          rows="2"
-          :readonly="!canEditDriverRecords"
-          @focus="onFieldFocus"
-          @click="onFieldClick"
-        />
-
-        <label>首次入职时间</label>
-        <input
-          v-model="form.first_hire_date"
-          type="date"
-          :readonly="!canEditDriverRecords"
-          @focus="onFieldFocus"
-          @click="onFieldClick"
-        />
+        <div class="driver-document-field">
+          <div v-if="editingId && existingOnboarding" class="driver-document-field__existing">
+            <span>已上传图片</span>
+            <button type="button" class="link" @click="viewDocumentById(editingId, 'outsourcing_onboarding')">查看</button>
+            <button type="button" class="link danger" :disabled="saving" @click="removeDocument('outsourcing_onboarding')">删除</button>
+          </div>
+          <MobileMediaCapture
+            ref="onboardingCaptureRef"
+            panel-aria-label="外包人员入职手续图片"
+            photo-heading=""
+            photo-hint="拍照或选择 JPG、PNG、WebP 图片；保存驾驶员后自动上传。"
+            photo-file-base="outsourcing_onboarding"
+            single-photo
+            compact
+            :max-file-mb="20"
+            :show-photo-download="false"
+          />
+        </div>
       </div>
 
       <template #footer>
@@ -363,17 +362,23 @@
 
 <script setup lang="ts">
 import axios from 'axios'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 
 import * as api from '@/api/drivers'
-import type { DriverStats } from '@/api/drivers'
+import type { DriverDocumentKind } from '@/api/drivers'
 import { fetchWorkshops, type Workshop } from '@/api/workshops'
 import type { Driver } from '@/api/types'
 import AppModal from '@/components/AppModal.vue'
+import MobileMediaCapture from '@/components/MobileMediaCapture.vue'
 import SearchableSelect, { type SearchableOption } from '@/components/SearchableSelect.vue'
 import { usePermissions } from '@/composables/usePermissions'
-import { fmtDate } from '@/utils/format'
 import { ageFromIdCard, formatAgeFromIdCard } from '@/utils/idCard'
+
+type MediaCaptureHandle = {
+  getPhotoFile: () => File | null
+  clearPhoto: () => void
+}
 
 const EDIT_DENIED_MSG = '当前账号无权修改驾驶员档案，请联系段级或超级管理员。'
 
@@ -404,19 +409,24 @@ const PHONE_PATTERN = /^\d{11}$/
 const ID_CARD_PATTERN = /^\d{17}[\dX]$/
 
 const { canEditDriverRecords } = usePermissions()
+const router = useRouter()
+
+function openManagementAnalysis() {
+  void router.push({ name: 'managementAnalysis', query: { scope: 'drivers' } })
+}
 
 const loading = ref(true)
 const saving = ref(false)
 const rows = ref<Driver[]>([])
 const q = ref('')
 const msg = ref('')
-const stats = ref<DriverStats | null>(null)
 const totalCount = ref(0)
-const listLoaded = ref(false)
-const listPager = reactive({
-  page: 1,
-  page_size: 15,
-})
+const loadingMore = ref(false)
+const DRIVER_BATCH_SIZE = 30
+const driverDesktopLoadMoreRef = ref<HTMLElement | null>(null)
+const driverMobileLoadMoreRef = ref<HTMLElement | null>(null)
+let driverLoadObserver: IntersectionObserver | null = null
+let listRequestId = 0
 const driverWorkshops = ref<string[]>([])
 const driverLicenseTypes = ref<string[]>([])
 const workshopsMaster = ref<Workshop[]>([])
@@ -428,16 +438,22 @@ const formEmploymentStatusId = ref(0)
 const employmentStatusFormOptions = EMPLOYMENT_STATUS_OPTIONS
 
 const modalOpen = ref(false)
+const detailOpen = ref(false)
+const detailDriver = ref<Driver | null>(null)
 const modalTitle = ref('新增驾驶员')
 const editingId = ref<number | null>(null)
+const healthCaptureRef = ref<MediaCaptureHandle | null>(null)
+const onboardingCaptureRef = ref<MediaCaptureHandle | null>(null)
+const existingHealthReport = ref(false)
+const existingOnboarding = ref(false)
+const documentPreviewOpen = ref(false)
+const documentPreviewUrl = ref('')
+const documentPreviewTitle = ref('档案图片')
 
 const form = reactive({
   name: '',
   phone: '',
   id_card: '',
-  health_check_report: '',
-  outsourcing_onboarding: '',
-  first_hire_date: '',
 })
 
 const formAgeDisplay = computed(() => {
@@ -460,6 +476,10 @@ function driverEmploymentStatusLabel(d: Driver) {
   if (raw.includes('外包')) return '外包'
   if (raw === '在岗' || raw === '在职') return '本单位'
   return raw
+}
+
+function canEditDriver(d: Driver) {
+  return canEditDriverRecords.value && !d.is_restricted
 }
 
 function employmentStatusIdFromLabel(label: string): number {
@@ -508,12 +528,7 @@ function onFieldClick() {
 }
 
 const workshopFilterOptions = computed<SearchableOption[]>(() => {
-  const names = new Set<string>()
-  for (const w of driverWorkshops.value) names.add(w)
-  if (stats.value?.by_workshop) {
-    for (const k of Object.keys(stats.value.by_workshop)) names.add(k)
-  }
-  const sorted = [...names].sort((a, b) => a.localeCompare(b, 'zh-CN'))
+  const sorted = [...new Set(driverWorkshops.value)].sort((a, b) => a.localeCompare(b, 'zh-CN'))
   const out: SearchableOption[] = []
   let nid = 1
   for (const label of sorted) {
@@ -532,12 +547,8 @@ const workshopFormOptions = computed<SearchableOption[]>(() =>
 )
 
 const licenseTypeOptions = computed<SearchableOption[]>(() => {
-  const out: SearchableOption[] = []
-  let nid = 1
-  if (stats.value?.by_license_type['(未填)']) {
-    out.push({ id: nid, label: '(未填)', keywords: '(未填) 未填' })
-    nid += 1
-  }
+  const out: SearchableOption[] = [{ id: 1, label: '(未填)', keywords: '(未填) 未填' }]
+  let nid = 2
   for (const s of driverLicenseTypes.value) {
     out.push({ id: nid, label: s, keywords: s })
     nid += 1
@@ -564,101 +575,20 @@ const licenseFormOptions = computed<SearchableOption[]>(() => {
   }))
 })
 
-const employmentKpi = computed(() => {
-  const m = stats.value?.by_employment_status
-  return {
-    internal: m?.['本单位'] ?? 0,
-    outsourced: m?.['外包'] ?? 0,
-  }
+const hasMoreDrivers = computed(() => rows.value.length < totalCount.value)
+
+const driverGroups = computed(() => {
+  const grouped = new Map<string, Array<{ driver: Driver; index: number }>>()
+  rows.value.forEach((driver, index) => {
+    const workshop = driverWorkshopLabel(driver)
+    const items = grouped.get(workshop) ?? []
+    items.push({ driver, index })
+    grouped.set(workshop, items)
+  })
+  return [...grouped.entries()]
+    .sort(([a], [b]) => a.localeCompare(b, 'zh-CN', { sensitivity: 'accent' }))
+    .map(([workshop, items]) => ({ workshop, items }))
 })
-
-const workshopChips = computed(() => {
-  if (!stats.value) return [] as [string, number][]
-  return Object.entries(stats.value.by_workshop).sort((a, b) => b[1] - a[1])
-})
-
-const licenseChips = computed(() => {
-  if (!stats.value) return [] as [string, number][]
-  return Object.entries(stats.value.by_license_type).sort((a, b) => b[1] - a[1])
-})
-
-/** 年龄分布：保留后端给定的年龄段顺序（由年轻到年长），不按数量排序 */
-const ageChips = computed(() => {
-  if (!stats.value?.by_age_group) return [] as [string, number][]
-  return Object.entries(stats.value.by_age_group)
-})
-
-const workshopBarMax = computed(() => {
-  const chips = workshopChips.value
-  if (!chips.length) return 1
-  return Math.max(...chips.map((x) => x[1]), 1)
-})
-
-const licenseBarMax = computed(() => {
-  const chips = licenseChips.value
-  if (!chips.length) return 1
-  return Math.max(...chips.map((x) => x[1]), 1)
-})
-
-const ageBarMax = computed(() => {
-  const chips = ageChips.value
-  if (!chips.length) return 1
-  return Math.max(...chips.map((x) => x[1]), 1)
-})
-
-const totalDriverPages = computed(() =>
-  Math.max(1, Math.ceil(totalCount.value / listPager.page_size) || 1),
-)
-
-/** 暖色主题条形渐变，与车辆管理页分布图一致（VehiclesView） */
-const BAR_FILL_GRADIENTS = [
-  'linear-gradient(90deg, rgba(201, 100, 66, 0.32) 0%, #c96442 94%)',
-  'linear-gradient(90deg, rgba(215, 119, 87, 0.35) 0%, #d97757 94%)',
-  'linear-gradient(90deg, rgba(181, 138, 90, 0.4) 0%, #9a7340 92%)',
-  'linear-gradient(90deg, rgba(201, 161, 91, 0.42) 0%, #b8883a 92%)',
-  'linear-gradient(90deg, rgba(94, 93, 89, 0.28) 0%, #6b5d4b 94%)',
-  'linear-gradient(90deg, rgba(167, 107, 82, 0.38) 0%, #a76b52 92%)',
-  'linear-gradient(90deg, rgba(77, 76, 72, 0.32) 0%, #5c5347 92%)',
-  'linear-gradient(90deg, rgba(201, 100, 66, 0.18) 0%, #c47a5f 90%)',
-] as const
-
-function barFillStyle(index: number): Record<string, string> {
-  return {
-    background: BAR_FILL_GRADIENTS[index % BAR_FILL_GRADIENTS.length],
-    boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.32)',
-  }
-}
-
-/** 车间条形宽度 + 渐变（避免模板中调用独立函数名在 HMR 下偶发非函数错误） */
-function workshopBarFillStyle(cnt: number, idx: number): Record<string, string> {
-  const max = workshopBarMax.value
-  const pct = max > 0 ? (cnt / max) * 100 : 0
-  return { width: `${pct}%`, ...barFillStyle(idx) }
-}
-
-/** 准驾条形宽度 + 渐变（避免模板中调用独立函数名在 HMR 下偶发非函数错误） */
-function licenseBarFillStyle(cnt: number, idx: number): Record<string, string> {
-  const max = licenseBarMax.value
-  const pct = max > 0 ? (cnt / max) * 100 : 0
-  return { width: `${pct}%`, ...barFillStyle(idx) }
-}
-
-/** 年龄段条形宽度 + 渐变 */
-function ageBarFillStyle(cnt: number, idx: number): Record<string, string> {
-  const max = ageBarMax.value
-  const pct = max > 0 ? (cnt / max) * 100 : 0
-  return { width: `${pct}%`, ...barFillStyle(idx) }
-}
-
-function trunc(s: string | null, n: number) {
-  if (!s) return '—'
-  return s.length <= n ? s : `${s.slice(0, n)}…`
-}
-
-/** 当前页列表展示序号（跨页连续编号），非数据库 sort_no */
-function displayRowSeq(index: number) {
-  return (listPager.page - 1) * listPager.page_size + index + 1
-}
 
 function selectedWorkshopQuery(): string | undefined {
   if (!filterWorkshopId.value) return undefined
@@ -670,88 +600,88 @@ function selectedLicenseQuery(): string | undefined {
   return licenseTypeOptions.value.find((x) => x.id === filterLicenseId.value)?.label
 }
 
-function buildDriverListParams() {
+function buildDriverListParams(skip: number) {
   return {
     q: q.value || undefined,
-    skip: (listPager.page - 1) * listPager.page_size,
-    limit: listPager.page_size,
+    skip,
+    limit: DRIVER_BATCH_SIZE,
     workshop: selectedWorkshopQuery(),
     license_type: selectedLicenseQuery(),
   }
 }
 
-async function fetchListData() {
-  const res = await api.listDrivers(buildDriverListParams())
-  const maxPage = Math.max(1, Math.ceil(res.total / listPager.page_size) || 1)
-  if (res.total > 0 && listPager.page > maxPage) {
-    listPager.page = maxPage
-    const res2 = await api.listDrivers(buildDriverListParams())
-    rows.value = res2.items
-    totalCount.value = res2.total
+async function fetchListData(append: boolean, requestId: number) {
+  const skip = append ? rows.value.length : 0
+  const res = await api.listDrivers(buildDriverListParams(skip))
+  if (requestId !== listRequestId) return
+  if (append) {
+    const existingIds = new Set(rows.value.map((driver) => driver.id))
+    rows.value = [...rows.value, ...res.items.filter((driver) => !existingIds.has(driver.id))]
   } else {
     rows.value = res.items
-    totalCount.value = res.total
   }
-  listLoaded.value = true
+  totalCount.value = res.total
 }
 
 async function loadList() {
-  listPager.page = 1
+  const requestId = ++listRequestId
   loading.value = true
+  loadingMore.value = false
   msg.value = ''
   try {
-    await fetchListData()
+    await fetchListData(false, requestId)
   } catch {
-    msg.value = '加载驾驶员列表失败'
+    if (requestId === listRequestId) msg.value = '加载驾驶员列表失败'
   } finally {
-    loading.value = false
+    if (requestId === listRequestId) loading.value = false
   }
 }
 
-async function loadListKeepPage() {
-  loading.value = true
-  msg.value = ''
+async function loadMoreDrivers() {
+  if (loading.value || loadingMore.value || !hasMoreDrivers.value) return
+  const requestId = listRequestId
+  loadingMore.value = true
   try {
-    await fetchListData()
+    await fetchListData(true, requestId)
   } catch {
-    msg.value = '加载驾驶员列表失败'
+    if (requestId === listRequestId) msg.value = '加载更多驾驶员失败，请继续下滑重试'
   } finally {
-    loading.value = false
+    if (requestId === listRequestId) loadingMore.value = false
   }
 }
 
-function onDriverPageSizeChange() {
-  listPager.page = 1
-  void loadListKeepPage()
+function observeDriverLoadTargets() {
+  driverLoadObserver?.disconnect()
+  driverLoadObserver = null
+  if (typeof IntersectionObserver === 'undefined') return
+  driverLoadObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) void loadMoreDrivers()
+    },
+    { rootMargin: '320px 0px' },
+  )
+  if (driverDesktopLoadMoreRef.value) driverLoadObserver.observe(driverDesktopLoadMoreRef.value)
+  if (driverMobileLoadMoreRef.value) driverLoadObserver.observe(driverMobileLoadMoreRef.value)
 }
 
-function prevDriverPage() {
-  if (listPager.page <= 1) return
-  listPager.page -= 1
-  void loadListKeepPage()
-}
-
-function nextDriverPage() {
-  if (listPager.page >= totalDriverPages.value) return
-  listPager.page += 1
-  void loadListKeepPage()
-}
+watch([driverDesktopLoadMoreRef, driverMobileLoadMoreRef], observeDriverLoadTargets, { flush: 'post' })
 
 async function loadAll() {
+  const requestId = ++listRequestId
   loading.value = true
+  loadingMore.value = false
   msg.value = ''
-  listPager.page = 1
   try {
     const [f, ws] = await Promise.all([api.getDriverFilters(), fetchWorkshops()])
+    if (requestId !== listRequestId) return
     driverWorkshops.value = f.workshops
     driverLicenseTypes.value = f.license_types
     workshopsMaster.value = ws
-    stats.value = await api.getDriverStats()
-    await fetchListData()
+    await fetchListData(false, requestId)
   } catch {
-    msg.value = '加载统计或列表失败'
+    if (requestId === listRequestId) msg.value = '加载筛选项或驾驶员列表失败'
   } finally {
-    loading.value = false
+    if (requestId === listRequestId) loading.value = false
   }
 }
 
@@ -759,9 +689,10 @@ function resetForm() {
   form.name = ''
   form.phone = ''
   form.id_card = ''
-  form.health_check_report = ''
-  form.outsourcing_onboarding = ''
-  form.first_hire_date = ''
+  existingHealthReport.value = false
+  existingOnboarding.value = false
+  healthCaptureRef.value?.clearPhoto()
+  onboardingCaptureRef.value?.clearPhoto()
   formWorkshopId.value = 0
   formLicenseId.value = 0
   formEmploymentStatusId.value = 0
@@ -794,7 +725,7 @@ function openCreate() {
 }
 
 function openEdit(d: Driver) {
-  if (!canEditDriverRecords.value) {
+  if (!canEditDriver(d)) {
     denyEdit()
     return
   }
@@ -803,14 +734,67 @@ function openEdit(d: Driver) {
   form.name = d.name
   form.phone = d.phone
   form.id_card = d.id_card || ''
-  form.health_check_report = d.health_check_report || ''
-  form.outsourcing_onboarding = d.outsourcing_onboarding || ''
-  form.first_hire_date = d.first_hire_date ? d.first_hire_date.slice(0, 10) : ''
+  existingHealthReport.value = d.has_health_check_report
+  existingOnboarding.value = d.has_outsourcing_onboarding
+  healthCaptureRef.value?.clearPhoto()
+  onboardingCaptureRef.value?.clearPhoto()
   formWorkshopId.value = d.workshop_id ?? 0
   const licOpt = licenseFormOptions.value.find((x) => x.label === (d.license_type || '').trim())
   formLicenseId.value = licOpt?.id ?? 0
   formEmploymentStatusId.value = employmentStatusIdFromLabel(driverEmploymentStatusLabel(d))
   modalOpen.value = true
+}
+
+function openDetails(d: Driver) {
+  detailDriver.value = d
+  detailOpen.value = true
+}
+
+function editFromDetails() {
+  if (!detailDriver.value || !canEditDriver(detailDriver.value)) return
+  const driver = detailDriver.value
+  detailOpen.value = false
+  openEdit(driver)
+}
+
+function closeDocumentPreview() {
+  documentPreviewOpen.value = false
+  if (documentPreviewUrl.value) URL.revokeObjectURL(documentPreviewUrl.value)
+  documentPreviewUrl.value = ''
+}
+
+async function viewDocumentById(driverId: number, kind: DriverDocumentKind) {
+  msg.value = ''
+  try {
+    const blob = await api.downloadDriverDocument(driverId, kind)
+    closeDocumentPreview()
+    documentPreviewUrl.value = URL.createObjectURL(blob)
+    documentPreviewTitle.value = kind === 'health_check_report' ? '健康体检报告' : '外包人员入职手续'
+    documentPreviewOpen.value = true
+  } catch (e) {
+    msg.value = axios.isAxiosError(e) ? String(e.response?.data?.detail || '加载档案图片失败') : '加载档案图片失败'
+  }
+}
+
+function viewDocument(driver: Driver, kind: DriverDocumentKind) {
+  void viewDocumentById(driver.id, kind)
+}
+
+async function removeDocument(kind: DriverDocumentKind) {
+  if (!editingId.value || saving.value) return
+  const label = kind === 'health_check_report' ? '健康体检报告' : '外包人员入职手续'
+  if (!confirm(`确定删除已上传的${label}图片？`)) return
+  saving.value = true
+  msg.value = ''
+  try {
+    await api.deleteDriverDocument(editingId.value, kind)
+    if (kind === 'health_check_report') existingHealthReport.value = false
+    else existingOnboarding.value = false
+  } catch (e) {
+    msg.value = axios.isAxiosError(e) ? String(e.response?.data?.detail || '删除图片失败') : '删除图片失败'
+  } finally {
+    saving.value = false
+  }
 }
 
 async function save() {
@@ -825,6 +809,7 @@ async function save() {
   }
   saving.value = true
   msg.value = ''
+  let savedDriverId: number | null = null
   try {
     const payload: Record<string, unknown> = {
       name: form.name,
@@ -833,22 +818,40 @@ async function save() {
       workshop_id: syncFormWorkshopFromId(),
       status: syncFormEmploymentStatusFromId(),
       id_card: form.id_card || null,
-      health_check_report: form.health_check_report || null,
-      outsourcing_onboarding: form.outsourcing_onboarding || null,
-      first_hire_date: form.first_hire_date ? form.first_hire_date : null,
     }
-    if (editingId.value) await api.updateDriver(editingId.value, payload)
-    else await api.createDriver(payload)
+    const saved = editingId.value
+      ? await api.updateDriver(editingId.value, payload)
+      : await api.createDriver(payload)
+    savedDriverId = saved.id
+    editingId.value = saved.id
+
+    const healthFile = healthCaptureRef.value?.getPhotoFile()
+    if (healthFile) {
+      await api.uploadDriverDocument(saved.id, 'health_check_report', healthFile)
+      existingHealthReport.value = true
+    }
+    const onboardingFile = onboardingCaptureRef.value?.getPhotoFile()
+    if (onboardingFile) {
+      await api.uploadDriverDocument(saved.id, 'outsourcing_onboarding', onboardingFile)
+      existingOnboarding.value = true
+    }
     modalOpen.value = false
     await loadAll()
   } catch (e) {
-    msg.value = axios.isAxiosError(e) ? String(e.response?.data?.detail || '保存失败') : '保存失败'
+    const detail = axios.isAxiosError(e) ? String(e.response?.data?.detail || '') : ''
+    msg.value = savedDriverId
+      ? `驾驶员资料已保存，但图片上传失败${detail ? `：${detail}` : '，请重新选择图片后保存'}。`
+      : detail || '保存失败'
   } finally {
     saving.value = false
   }
 }
 
 async function onDelete(d: Driver) {
+  if (!canEditDriver(d)) {
+    denyEdit()
+    return
+  }
   if (!confirm(`确定删除驾驶员 ${d.name} ？`)) return
   msg.value = ''
   try {
@@ -860,6 +863,10 @@ async function onDelete(d: Driver) {
 }
 
 onMounted(loadAll)
+onBeforeUnmount(() => {
+  driverLoadObserver?.disconnect()
+  closeDocumentPreview()
+})
 </script>
 
 <style scoped>
@@ -870,159 +877,6 @@ onMounted(loadAll)
   box-sizing: border-box;
 }
 
-.driver-overview {
-  margin-bottom: 14px;
-  padding: 12px 14px;
-  border-radius: 14px;
-  border: 1px solid var(--cl-border-cream);
-  background: var(--cl-warm-sand);
-  box-sizing: border-box;
-}
-
-.driver-overview__kpi {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px 12px;
-  margin-bottom: 10px;
-}
-
-.driver-overview__kpi-label {
-  font-size: 13px;
-  color: var(--cl-olive);
-  font-weight: 700;
-}
-
-.driver-overview__kpi-num {
-  font-size: 1.35rem;
-  font-weight: 900;
-  color: var(--cl-near-black);
-}
-
-.driver-overview__kpi-breakdown {
-  font-size: 12px;
-  color: var(--cl-charcoal);
-}
-
-.driver-overview__kpi-breakdown strong {
-  font-weight: 800;
-  color: var(--cl-coral);
-}
-
-.driver-overview__kpi-hint {
-  font-size: 12px;
-  color: var(--cl-olive);
-}
-
-.driver-charts {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid var(--cl-border-cream);
-  min-width: 0;
-}
-
-/* 中等屏：三图改两列，避免每个条形图过窄 */
-@media (max-width: 1100px) and (min-width: 769px) {
-  .driver-charts {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-.driver-chart {
-  min-width: 0;
-  padding: 12px;
-  border-radius: 12px;
-  background: var(--cl-ivory);
-  border: 1px solid var(--cl-border-cream);
-  box-sizing: border-box;
-}
-
-/* 与 VehiclesView `.chart` 白底一致，条形区域视觉统一 */
-.driver-chart--bars {
-  background: var(--cl-white);
-  padding: 10px;
-}
-
-.driver-chart__title {
-  margin: 0 0 12px;
-  font-size: 0.95rem;
-  font-weight: 800;
-  color: var(--cl-charcoal);
-  font-family: Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif;
-}
-
-.driver-chart__empty {
-  margin: 0;
-  font-size: 13px;
-  color: var(--cl-olive);
-}
-
-.driver-chart__bar-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-
-/* 与 VehiclesView `.bars--scroll` 一致：固定可视高度，超出纵向滚动 */
-.driver-chart__bar-list--scroll {
-  max-height: 196px;
-  overflow-y: auto;
-  padding-right: 4px;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-gutter: stable;
-}
-
-.driver-chart__bar-row {
-  display: grid;
-  grid-template-columns: 90px minmax(0, 1fr) 88px;
-  gap: 8px;
-  align-items: center;
-}
-
-.driver-chart__bar-label {
-  font-size: 12px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.driver-chart__bar-track {
-  height: 9px;
-  border-radius: 999px;
-  background: linear-gradient(180deg, #ebe7dc, var(--cl-warm-sand));
-  border: 1px solid rgba(232, 230, 220, 0.85);
-  box-shadow: inset 0 1px 2px rgba(20, 20, 19, 0.06);
-  overflow: hidden;
-}
-
-.driver-chart__bar-fill {
-  display: block;
-  height: 100%;
-  min-width: 6px;
-  border-radius: 999px;
-  transition:
-    filter 0.16s ease,
-    box-shadow 0.16s ease;
-}
-
-.driver-chart__bar-row:hover .driver-chart__bar-fill {
-  filter: brightness(1.07) saturate(1.05);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.35),
-    0 0 0 1px rgba(201, 100, 66, 0.12);
-}
-
-.driver-chart__bar-val {
-  font-size: 12px;
-  text-align: right;
-}
-
 .toolbar {
   display: grid;
   grid-template-columns: minmax(200px, 1fr) minmax(128px, 200px) minmax(128px, 200px) auto;
@@ -1031,6 +885,12 @@ onMounted(loadAll)
   gap: 14px 12px;
   margin-bottom: 12px;
   min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(201, 100, 66, 0.16);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(201, 100, 66, 0.16), transparent 34%),
+    linear-gradient(120deg, rgba(255, 255, 255, 0.96), rgba(239, 232, 215, 0.58));
 }
 
 /* 四个格子：关键字 | 状态 | 准驾 | 按钮组（避免 flex+子组件 flex:1 把整块撑到数百像素高） */
@@ -1122,6 +982,161 @@ onMounted(loadAll)
   align-items: center;
   justify-self: end;
   margin-left: 0;
+}
+
+.toolbar__btn-analysis {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.toolbar__btn-analysis.is-active {
+  border-color: var(--cl-brand);
+  color: var(--cl-brand);
+  background: rgba(201, 100, 66, 0.07);
+}
+
+.driver-analysis {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  margin: 0 0 12px;
+  padding: 12px;
+  border: 1px solid rgba(201, 100, 66, 0.2);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 96% 0%, rgba(201, 100, 66, 0.12), transparent 32%),
+    rgba(255, 253, 249, 0.94);
+}
+
+.driver-analysis__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.driver-analysis__heading > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.driver-analysis__heading strong {
+  color: var(--cl-near-black);
+  font-size: 15px;
+}
+
+.driver-analysis__heading span,
+.driver-analysis__loading,
+.driver-analysis__empty {
+  color: var(--cl-olive);
+  font-size: 12px;
+}
+
+.driver-analysis__kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.driver-kpi {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--cl-border-cream);
+  border-radius: 12px;
+  background: var(--cl-white);
+}
+
+.driver-kpi span {
+  display: block;
+  color: var(--cl-olive);
+  font-size: 12px;
+}
+
+.driver-kpi strong {
+  display: block;
+  margin-top: 3px;
+  font-family: Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif;
+  font-size: 1.1rem;
+}
+
+.driver-analysis__charts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.driver-chart {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--cl-border-cream);
+  border-radius: 12px;
+  background: var(--cl-white);
+}
+
+.driver-chart h3 {
+  margin: 0 0 9px;
+  color: var(--cl-olive);
+  font-size: 12px;
+}
+
+.driver-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  max-height: 180px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.driver-bar {
+  display: grid;
+  grid-template-columns: minmax(64px, 96px) minmax(0, 1fr) 50px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.driver-bar__label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--cl-near-black);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.driver-bar__track {
+  height: 8px;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(107, 93, 75, 0.1);
+}
+
+.driver-bar__fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.driver-bar__value {
+  color: var(--cl-olive);
+  font-size: 11px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.driver-analysis__empty {
+  margin: 0;
+  padding: 18px 8px;
+  text-align: center;
 }
 
 .toolbar-label {
@@ -1218,6 +1233,23 @@ onMounted(loadAll)
   min-width: 0;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+}
+
+.scroll-loader-row td,
+.scroll-loader {
+  padding: 14px 12px;
+  color: var(--cl-olive);
+  background: var(--cl-ivory);
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: center;
+  list-style: none;
+}
+
+.scroll-loader-row--done td,
+.scroll-loader--done {
+  color: var(--cl-stone);
+  background: transparent;
 }
 
 .driver-pager {
@@ -1416,7 +1448,7 @@ onMounted(loadAll)
 
 .driver-card__actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(82px, 1fr));
   gap: 10px;
   margin-top: 14px;
   padding-top: 12px;
@@ -1513,81 +1545,50 @@ th {
   resize: vertical;
 }
 
+.driver-document-field {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--cl-border-cream);
+  border-radius: 12px;
+  background: var(--cl-ivory);
+}
+
+.driver-document-field__existing {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  color: var(--cl-charcoal);
+  font-size: 12px;
+}
+
+.driver-document-field :deep(.mobile-capture) {
+  margin: 0;
+}
+
+.driver-document-preview {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #181a18;
+}
+
+.driver-document-preview img {
+  display: block;
+  max-width: 100%;
+  max-height: min(70vh, 760px);
+  object-fit: contain;
+}
+
+.driver-card__doc-link {
+  justify-self: start;
+}
+
 @media (max-width: 768px) {
   .drivers-view {
     padding-bottom: env(safe-area-inset-bottom, 0);
-  }
-
-  .driver-overview {
-    padding: 10px 12px;
-    margin-bottom: 12px;
-    border-radius: 12px;
-  }
-
-  .driver-overview__kpi {
-    margin-bottom: 12px;
-    gap: 6px 10px;
-  }
-
-  .driver-overview__kpi-num {
-    font-size: 1.5rem;
-  }
-
-  .driver-overview__kpi-breakdown {
-    width: 100%;
-    flex-basis: 100%;
-    font-size: 13px;
-  }
-
-  .driver-overview__kpi-hint {
-    width: 100%;
-    flex-basis: 100%;
-  }
-
-  .driver-charts {
-    grid-template-columns: 1fr;
-    gap: 12px;
-    margin-top: 12px;
-    padding-top: 12px;
-  }
-
-  .driver-chart {
-    padding: 14px 12px;
-    border-radius: 14px;
-  }
-
-  .driver-chart--bars {
-    padding: 10px;
-  }
-
-  .driver-chart__title {
-    font-size: 1rem;
-    margin-bottom: 14px;
-  }
-
-  .driver-chart__bar-list {
-    gap: 7px;
-  }
-
-  .driver-chart__bar-list--scroll {
-    max-height: min(280px, 36vh);
-  }
-
-  .driver-chart__bar-row {
-    grid-template-columns: 90px minmax(0, 1fr) 88px;
-    gap: 8px;
-    align-items: center;
-  }
-
-  .driver-chart__bar-label {
-    font-size: 12px;
-    white-space: nowrap;
-    line-height: normal;
-    word-break: normal;
-  }
-
-  .driver-chart__bar-val {
-    font-size: 12px;
   }
 
   .toolbar {
@@ -1877,19 +1878,435 @@ th {
   align-items: center;
 }
 
-@media (max-width: 380px) {
-  .driver-chart__bar-row {
-    grid-template-columns: 1fr;
-    gap: 6px;
+.driver-workshop-row td {
+  padding: 9px 12px;
+  background: linear-gradient(90deg, rgba(201, 100, 66, 0.15), rgba(239, 232, 215, 0.5) 64%, transparent);
+  border-bottom-color: rgba(201, 100, 66, 0.2);
+}
+
+.driver-workshop-row strong,
+.driver-workshop-heading strong {
+  color: var(--cl-near-black);
+  font-size: 14px;
+}
+
+.driver-workshop-row span,
+.driver-workshop-heading span {
+  margin-left: 10px;
+  color: var(--cl-olive);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.driver-workshop-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(201, 100, 66, 0.18);
+  background: linear-gradient(100deg, #f4e8de, #f5f1e8 68%, #fff);
+}
+
+.restricted-copy,
+.driver-card__restricted {
+  color: var(--cl-olive);
+  font-size: 12px;
+  font-style: italic;
+}
+
+.driver-card__restricted {
+  margin: 7px 0 0;
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: var(--cl-warm-sand);
+}
+
+.driver-card__status--restricted {
+  background: rgba(181, 138, 90, 0.14);
+}
+
+.driver-detail__hero {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.driver-detail__hero > div,
+.driver-detail__grid > div {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--cl-border-cream);
+  border-radius: 12px;
+  background: linear-gradient(145deg, var(--cl-white), rgba(239, 232, 215, 0.42));
+}
+
+.driver-detail__hero span,
+.driver-detail__grid dt {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--cl-olive);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.driver-detail__hero strong {
+  display: block;
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+
+.driver-detail__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.driver-detail__grid dd {
+  margin: 0;
+  color: var(--cl-near-black);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.driver-detail__phone {
+  color: var(--cl-coral) !important;
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.driver-detail__wide {
+  grid-column: 1 / -1;
+}
+
+.driver-detail__notice {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--cl-warm-sand);
+  color: var(--cl-olive);
+  font-size: 13px;
+}
+
+/* 手机端采用紧凑控制区和独立滚动列表，保持与油卡余额页一致的浏览节奏。 */
+@media (max-width: 768px) {
+  .driver-detail__hero,
+  .driver-detail__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
   }
 
-  .driver-chart__bar-track {
+  .driver-detail__wide {
     grid-column: 1 / -1;
   }
 
-  .driver-chart__bar-val {
-    text-align: left;
-    font-variant-numeric: tabular-nums;
+  .driver-detail__hero > div,
+  .driver-detail__grid > div {
+    padding: 10px;
+  }
+
+  .drivers-view {
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .toolbar {
+    flex: 0 0 auto;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+
+  .toolbar__search-wrap {
+    grid-column: 1 / -1;
+  }
+
+  .toolbar__search {
+    min-height: 38px;
+    padding: 7px 9px 7px 34px;
+    border-radius: 9px;
+    font-size: 13px;
+  }
+
+  .toolbar__search-icon {
+    left: 10px;
+  }
+
+  .toolbar__search-icon svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .toolbar__filters {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .toolbar__field {
+    gap: 0;
+  }
+
+  .toolbar-label {
+    display: none;
+  }
+
+  .toolbar :deep(.searchable-select__trigger) {
+    min-height: 38px;
+    height: 38px;
+    padding: 7px 9px;
+    border-radius: 9px;
+    font-size: 13px;
+  }
+
+  .toolbar__actions {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .toolbar__btn-query,
+  .toolbar__btn-analysis,
+  .toolbar__btn-new,
+  .toolbar__btn-refresh {
+    grid-column: auto;
+    min-height: 36px;
+    padding: 6px 7px;
+    border-radius: 9px;
+    font-size: 12px;
+  }
+
+  .toolbar__actions:not(:has(.toolbar__btn-new)) .toolbar__btn-refresh {
+    grid-column: 1 / -1;
+  }
+
+  .driver-analysis {
+    flex: 0 1 auto;
+    max-height: min(58vh, 540px);
+    margin-bottom: 6px;
+    padding: 8px;
+    border-radius: 12px;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .driver-analysis__heading {
+    align-items: flex-start;
+    margin-bottom: 8px;
+  }
+
+  .driver-analysis__heading > div {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .driver-analysis__kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+
+  .driver-kpi {
+    padding: 8px 9px;
+  }
+
+  .driver-analysis__charts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 7px;
+  }
+
+  .driver-chart {
+    padding: 9px;
+  }
+
+  .driver-bars {
+    max-height: 150px;
+  }
+
+  .driver-bar {
+    grid-template-columns: minmax(68px, 92px) minmax(0, 1fr) 46px;
+    gap: 6px;
+  }
+
+  .list-stack {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .list-wrap {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    overflow: hidden;
+  }
+
+  .driver-cards-mobile {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  .driver-cards {
+    width: 100%;
+    min-height: 0;
+    gap: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border: 1px solid var(--cl-border-cream);
+    border-radius: 12px;
+    background: var(--cl-white);
+  }
+
+  .driver-workshop-heading {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    flex: 0 0 auto;
+  }
+
+  .driver-card {
+    padding: 10px 12px;
+    border: 0;
+    border-bottom: 1px solid var(--cl-border-cream);
+    border-radius: 0;
+    box-shadow: none;
+    background: var(--cl-white);
+  }
+
+  .driver-card:last-child {
+    border-bottom: 0;
+  }
+
+  .driver-card__top {
+    margin-bottom: 6px;
+  }
+
+  .driver-card__name {
+    font-size: 16px;
+  }
+
+  .driver-card__status {
+    padding: 2px 8px;
+    font-size: 11px;
+  }
+
+  .driver-card__row {
+    grid-template-columns: 58px minmax(0, 1fr);
+    gap: 5px;
+    margin-bottom: 3px;
+    font-size: 12px;
+  }
+
+  .driver-card__k {
+    font-size: 11px;
+  }
+
+  .driver-card__row--detail {
+    display: none;
+  }
+
+  .driver-card__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 7px;
+    padding-top: 7px;
+  }
+
+  .driver-card__btn {
+    min-height: 32px;
+    padding: 5px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+  }
+
+  .driver-pager {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    padding: 6px;
+    border-radius: 10px;
+  }
+
+  .driver-pager__summary,
+  .driver-pager__size-row {
+    display: none;
+  }
+
+  .driver-pager__page {
+    width: auto;
+    flex: 1 1 auto;
+    font-size: 11px;
+  }
+
+  .driver-pager__nav {
+    display: flex;
+    width: auto;
+    gap: 5px;
+  }
+
+  .driver-pager__btn {
+    width: auto;
+    min-height: 32px;
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 390px) {
+  .driver-detail__hero,
+  .driver-detail__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .driver-detail__wide {
+    grid-column: auto;
+  }
+}
+
+@media (min-width: 901px) {
+  .toolbar {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .toolbar__search-wrap {
+    flex: 1 1 260px;
+    min-width: 220px;
+  }
+
+  .toolbar__filters {
+    display: flex;
+    flex: 0 1 auto;
+    gap: 8px;
+  }
+
+  .toolbar__field {
+    width: 150px;
+  }
+
+  .toolbar__actions {
+    flex: 0 0 auto;
   }
 }
 </style>

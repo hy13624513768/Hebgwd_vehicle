@@ -6,7 +6,8 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.deps import CurrentUser, DbSession
 from app.core.rbac import FleetUser
-from app.core.roles import LEGACY_STAFF, VEHICLE_DRIVER
+from app.core.roles import is_fleet_management
+from app.services.trip_service import validate_trip
 from app.models.trip_request import TripRequest
 from app.schemas.trip_request import TripRequestCreate, TripRequestOut, TripRequestUpdate
 from app.services.trip_acl import assert_trip_visible, normalize_trip_update, trips_query_filtered
@@ -50,7 +51,7 @@ def list_trip_requests(
 
 @router.post("", response_model=TripRequestOut, status_code=status.HTTP_201_CREATED)
 def create_trip_request(db: DbSession, current: CurrentUser, body: TripRequestCreate) -> TripRequest:
-    if current.role in (LEGACY_STAFF, "staff", VEHICLE_DRIVER) and (body.vehicle_id or body.driver_id):
+    if not is_fleet_management(current.role) and (body.vehicle_id or body.driver_id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="普通用户提交申请时不可指定车辆或驾驶员")
     row = TripRequest(
         purpose=body.purpose.strip(),
@@ -66,6 +67,7 @@ def create_trip_request(db: DbSession, current: CurrentUser, body: TripRequestCr
         notes=body.notes,
         created_by=current.id,
     )
+    validate_trip(db, current, row)
     db.add(row)
     try:
         db.commit()
@@ -87,11 +89,14 @@ def get_trip_request(db: DbSession, current: CurrentUser, trip_id: int) -> TripR
 
 @router.patch("/{trip_id}", response_model=TripRequestOut)
 def update_trip_request(db: DbSession, current: CurrentUser, trip_id: int, body: TripRequestUpdate) -> TripRequest:
-    row = db.get(TripRequest, trip_id)
+    row = db.scalar(select(TripRequest).where(TripRequest.id == trip_id).with_for_update())
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用车申请不存在")
     assert_trip_visible(db, current, row)
     data = normalize_trip_update(db, current, row, body)
+    previous_status = row.status
+    if previous_status in {"completed", "cancelled", "rejected"} and set(data) - {"notes", "status"}:
+        raise HTTPException(409, "已结束的申请只能修改备注")
     if "status" in data and data["status"] is not None:
         st = str(data["status"]).strip()
         if st not in ALLOWED_STATUS:
@@ -101,8 +106,7 @@ def update_trip_request(db: DbSession, current: CurrentUser, trip_id: int, body:
         if isinstance(v, str):
             v = v.strip()
         setattr(row, k, v)
-    if row.end_at <= row.start_at:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="结束时间必须晚于开始时间")
+    validate_trip(db, current, row, previous_status)
     try:
         db.commit()
     except IntegrityError:
@@ -113,9 +117,10 @@ def update_trip_request(db: DbSession, current: CurrentUser, trip_id: int, body:
 
 
 @router.delete("/{trip_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_trip_request(db: DbSession, _: FleetUser, trip_id: int) -> None:
+def delete_trip_request(db: DbSession, current: FleetUser, trip_id: int) -> None:
     row = db.get(TripRequest, trip_id)
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用车申请不存在")
+    assert_trip_visible(db, current, row)
     db.delete(row)
     db.commit()

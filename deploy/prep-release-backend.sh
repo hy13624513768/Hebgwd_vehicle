@@ -7,8 +7,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-chmod +x "$ROOT/entrypoint.sh" "$ROOT/deploy/entrypoint-backend.sh" "$ROOT/deploy/entrypoint-frontend.sh" 2>/dev/null || true
-chmod +x "$ROOT/../entrypoint.sh" 2>/dev/null || true
+chmod +x "$ROOT/deploy/entrypoint-backend.sh" "$ROOT/deploy/entrypoint-frontend.sh" 2>/dev/null || true
 
 echo ">>> 创建/更新后端虚拟环境并安装依赖（requirements.txt）…"
 cd "$ROOT/backend"

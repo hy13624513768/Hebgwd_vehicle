@@ -15,17 +15,17 @@
     </header>
 
     <div class="toolbar">
-      <select v-model.number="vehicleFilter" class="sel" @change="reload">
+      <select v-model.number="vehicleFilter" class="sel" @change="reload()">
         <option :value="0">全部车辆</option>
         <option v-for="v in vehicles" :key="v.id" :value="v.id">{{ v.plate_number }}</option>
       </select>
-      <select v-model="statusFilter" class="sel" @change="reload">
+      <select v-model="statusFilter" class="sel" @change="reload()">
         <option value="">全部状态</option>
         <option value="done">已识别</option>
         <option value="failed">识别失败</option>
         <option value="pending">待识别</option>
       </select>
-      <button type="button" class="ghost" :disabled="loading" @click="reload">刷新</button>
+      <button type="button" class="ghost" :disabled="loading" @click="reload()">刷新</button>
       <template v-if="canManageFleet">
         <input
           ref="sampleFileInput"
@@ -89,8 +89,18 @@
         </div>
         <button type="button" class="link" @click="openDetail(r.id)">查看明细与归类</button>
       </li>
+      <li v-if="isMobile" ref="mobileLoadMoreRef" class="scroll-loader">
+        <span v-if="loadingMore">正在加载更多结算单…</span>
+        <span v-else-if="hasMore">继续下滑加载 · 已显示 {{ rows.length }} / {{ total }} 条</span>
+        <span v-else>已加载全部 {{ total }} 条结算单</span>
+      </li>
     </ul>
 
+    <div class="toolbar pager" v-if="total && !isMobile">
+      <button class="ghost" :disabled="page <= 1 || loading" @click="page--; reload(false)">上一页</button>
+      <span>第 {{ page }} / {{ Math.ceil(total / pageSize) }} 页 · 共 {{ total }} 条</span>
+      <button class="ghost" :disabled="page * pageSize >= total || loading" @click="page++; reload(false)">下一页</button>
+    </div>
     <AppModal :open="detailOpen" title="结算单明细与词条归类" @close="detailOpen = false">
       <div v-if="detailLoading" class="hint">加载明细…</div>
       <template v-else-if="detail">
@@ -131,7 +141,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import * as repairApi from '@/api/repairRecords'
 import type { RepairSettlement, SettlementSummary } from '@/api/repairRecords'
@@ -150,6 +160,15 @@ const rows = ref<SettlementSummary[]>([])
 const categoryTotals = ref<Record<string, number>>({})
 const vehicles = ref<Vehicle[]>([])
 const vehicleFilter = ref(0)
+const page = ref(1)
+const total = ref(0)
+const pageSize = 50
+const loadingMore = ref(false)
+const mobileLoadMoreRef = ref<HTMLElement | null>(null)
+const isMobile = ref(typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches)
+const hasMore = computed(() => rows.value.length < total.value)
+let loadObserver: IntersectionObserver | null = null
+let mobileMediaQuery: MediaQueryList | null = null
 const statusFilter = ref('')
 const msg = ref('')
 const msgKind = ref<'ok' | 'err'>('err')
@@ -172,27 +191,78 @@ function statusLabel(s: string) {
   return m[s] || s
 }
 
-async function reload() {
+async function reload(resetPage = true) {
+  if (resetPage) page.value = 1
   loading.value = true
   if (!uploadingSample.value) msg.value = ''
   try {
     const [vs, res] = await Promise.all([
-      vapi.listVehicles({ limit: 200 }),
+      vapi.listAllVehicles(),
       repairApi.listSettlementSummaries({
         vehicle_id: vehicleFilter.value || undefined,
         recognition_status: statusFilter.value || undefined,
-        limit: 100,
+        skip: (page.value - 1) * pageSize,
+        limit: pageSize,
       }),
     ])
     vehicles.value = vs
     rows.value = res.items
+    total.value = res.total
     categoryTotals.value = res.category_totals
   } catch {
     msgKind.value = 'err'
     msg.value = '加载结算单失败'
   } finally {
     loading.value = false
+    await nextTick()
+    setupLoadObserver()
   }
+}
+
+async function loadMore() {
+  if (!isMobile.value || loading.value || loadingMore.value || !hasMore.value) return
+  loadingMore.value = true
+  const nextPage = page.value + 1
+  try {
+    const res = await repairApi.listSettlementSummaries({
+      vehicle_id: vehicleFilter.value || undefined,
+      recognition_status: statusFilter.value || undefined,
+      skip: (nextPage - 1) * pageSize,
+      limit: pageSize,
+    })
+    rows.value = [...rows.value, ...res.items]
+    total.value = res.total
+    categoryTotals.value = res.category_totals
+    page.value = nextPage
+  } catch {
+    msgKind.value = 'err'
+    msg.value = '加载更多结算单失败，请继续下滑重试'
+  } finally {
+    loadingMore.value = false
+    await nextTick()
+    setupLoadObserver()
+  }
+}
+
+function setupLoadObserver() {
+  loadObserver?.disconnect()
+  loadObserver = null
+  if (!isMobile.value || typeof IntersectionObserver === 'undefined') return
+  const target = mobileLoadMoreRef.value
+  if (!target) return
+  loadObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) void loadMore()
+    },
+    { rootMargin: '120px 0px' },
+  )
+  loadObserver.observe(target)
+}
+
+function onViewportChange(event: MediaQueryListEvent | MediaQueryList) {
+  const changed = isMobile.value !== event.matches
+  isMobile.value = event.matches
+  if (changed) void reload()
 }
 
 async function openDetail(settlementId: number) {
@@ -210,6 +280,11 @@ async function openDetail(settlementId: number) {
 }
 
 function pickSampleFile() {
+  if (!vehicleFilter.value) {
+    msgKind.value = 'err'
+    msg.value = '请先选择结算单所属车辆'
+    return
+  }
   if (!vehicles.value.length) {
     msgKind.value = 'err'
     msg.value = '请先在「车辆管理」中登记至少一辆车'
@@ -256,7 +331,16 @@ async function onSampleFilePicked(e: Event) {
   }
 }
 
-onMounted(reload)
+onMounted(() => {
+  mobileMediaQuery = window.matchMedia('(max-width: 768px)')
+  mobileMediaQuery.addEventListener('change', onViewportChange)
+  void reload()
+})
+
+onBeforeUnmount(() => {
+  loadObserver?.disconnect()
+  mobileMediaQuery?.removeEventListener('change', onViewportChange)
+})
 </script>
 
 <style scoped>
@@ -443,6 +527,14 @@ th {
   background: var(--cl-ivory);
 }
 
+.scroll-loader {
+  list-style: none;
+  padding: 10px 12px;
+  text-align: center;
+  color: var(--cl-olive);
+  font-size: 12px;
+}
+
 .settle-card__top {
   display: flex;
   justify-content: space-between;
@@ -469,19 +561,100 @@ th {
 }
 
 @media (max-width: 768px) {
+  .maintenance-view {
+    height: calc(100dvh - 80px);
+    min-height: 0;
+    gap: 7px;
+    overflow: hidden;
+  }
+
+  .page-head {
+    flex: 0 0 auto;
+    gap: 5px;
+  }
+
+  .page-title,
+  .page-desc {
+    display: none;
+  }
+
+  .cat-totals {
+    flex-wrap: nowrap;
+    width: 100%;
+    gap: 5px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .cat-pill {
+    flex: 0 0 auto;
+    padding: 3px 7px;
+    font-size: 10px;
+  }
+
+  .toolbar:not(.pager) {
+    display: grid;
+    flex: 0 0 auto;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 6px;
+  }
+
   .tbl--desktop {
     display: none;
   }
 
   .settle-cards {
     display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    gap: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    border: 1px solid var(--cl-border-cream);
+    border-radius: 11px;
+    background: var(--cl-white);
   }
 
   .sel,
   .primary,
   .ghost {
     width: 100%;
-    min-height: 44px;
+    min-width: 0;
+    min-height: 38px;
+    padding: 6px 8px;
+    border-radius: 9px;
+    font-size: 12px;
+  }
+
+  .sel {
+    font-size: 16px;
+  }
+
+  .settle-card {
+    padding: 10px 11px;
+    border: 0;
+    border-bottom: 1px solid var(--cl-border-cream);
+    border-radius: 0;
+    background: var(--cl-white);
+  }
+
+  .settle-card:nth-child(even) {
+    background: #fcfaf6;
+  }
+
+  .settle-card__top {
+    margin-bottom: 3px;
+  }
+
+  .settle-card .muted {
+    margin: 3px 0;
+    font-size: 11px;
+  }
+
+  .cat-tags {
+    margin: 5px 0;
   }
 }
 </style>

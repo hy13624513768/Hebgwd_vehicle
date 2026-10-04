@@ -135,10 +135,15 @@
               <p class="fuel-rec-card__station-text">{{ r.org_name || '—' }}</p>
             </div>
           </li>
+          <li v-if="isMobileRecords" ref="recordMobileLoadMoreRef" class="scroll-loader">
+            <span v-if="loadingMoreRecords">正在加载更多流水…</span>
+            <span v-else-if="hasMoreRecords">继续下滑加载 · 已显示 {{ records.length }} / {{ recordsTotal }} 条</span>
+            <span v-else>已加载全部 {{ recordsTotal }} 条流水</span>
+          </li>
         </ul>
       </div>
 
-      <div v-if="recordsSearched && !loadingRecords" class="rec-pager">
+      <div v-if="recordsSearched && !loadingRecords && !isMobileRecords" class="rec-pager">
         <span class="pager-meta">共 {{ recordsTotal }} 条</span>
         <label class="inline-label">每页</label>
         <select v-model.number="recFilter.page_size" class="filter-control pager-size" @change="onRecordPageSizeChange">
@@ -159,7 +164,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 
 import * as fuelApi from '@/api/fuel'
 import SearchableSelect, { type SearchableOption } from '@/components/SearchableSelect.vue'
@@ -175,6 +180,11 @@ const loadingRecords = ref(false)
 const exportingRecords = ref(false)
 const recordsSearched = ref(false)
 const recordsTotal = ref(0)
+const loadingMoreRecords = ref(false)
+const recordMobileLoadMoreRef = ref<HTMLElement | null>(null)
+const isMobileRecords = ref(typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches)
+let recordLoadObserver: IntersectionObserver | null = null
+let recordMobileMediaQuery: MediaQueryList | null = null
 
 const recFilter = reactive({
   card_asn_id: 0,
@@ -192,6 +202,7 @@ const recSort = reactive({
 const totalRecordPages = computed(() =>
   Math.max(1, Math.ceil(recordsTotal.value / recFilter.page_size) || 1),
 )
+const hasMoreRecords = computed(() => records.value.length < recordsTotal.value)
 
 const recordWorkshopOptions = computed<SearchableOption[]>(() =>
   recordWorkshops.value.map((unit, idx) => ({
@@ -248,6 +259,7 @@ function unitPriceOf(r: FuelRecord) {
 }
 
 function displayRecordSeq(index: number) {
+  if (isMobileRecords.value) return index + 1
   return (recFilter.page - 1) * recFilter.page_size + index + 1
 }
 
@@ -303,8 +315,9 @@ function buildRecordQueryParams(): fuelApi.ListFuelRecordsParams {
   return params
 }
 
-async function fetchRecordsPage() {
-  if (!loadingRecords.value) loadingRecords.value = true
+async function fetchRecordsPage(append = false) {
+  if (append) loadingMoreRecords.value = true
+  else if (!loadingRecords.value) loadingRecords.value = true
   msg.value = ''
   try {
     const res = await fuelApi.listFuelRecordsPaged(buildRecordQueryParams())
@@ -315,15 +328,50 @@ async function fetchRecordsPage() {
       records.value = res2.items
       recordsTotal.value = res2.total
     } else {
-      records.value = res.items
+      records.value = append ? [...records.value, ...res.items] : res.items
       recordsTotal.value = res.total
     }
     recordsSearched.value = true
+    return true
   } catch {
     msg.value = '加载加油流水失败'
+    return false
   } finally {
-    loadingRecords.value = false
+    if (append) loadingMoreRecords.value = false
+    else loadingRecords.value = false
+    await nextTick()
+    setupRecordLoadObserver()
   }
+}
+
+async function loadMoreRecords() {
+  if (!isMobileRecords.value || loadingRecords.value || loadingMoreRecords.value || !hasMoreRecords.value) return
+  recFilter.page += 1
+  const ok = await fetchRecordsPage(true)
+  if (!ok) recFilter.page = Math.max(1, recFilter.page - 1)
+}
+
+function setupRecordLoadObserver() {
+  recordLoadObserver?.disconnect()
+  recordLoadObserver = null
+  if (!isMobileRecords.value || typeof IntersectionObserver === 'undefined') return
+  const target = recordMobileLoadMoreRef.value
+  if (!target) return
+  recordLoadObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) void loadMoreRecords()
+    },
+    { rootMargin: '120px 0px' },
+  )
+  recordLoadObserver.observe(target)
+}
+
+function onRecordViewportChange(event: MediaQueryListEvent | MediaQueryList) {
+  const changed = isMobileRecords.value !== event.matches
+  isMobileRecords.value = event.matches
+  if (!changed) return
+  recFilter.page = 1
+  void fetchRecordsPage()
 }
 
 async function searchRecords() {
@@ -408,8 +456,15 @@ function nextRecordPage() {
 }
 
 onMounted(() => {
+  recordMobileMediaQuery = window.matchMedia('(max-width: 768px)')
+  recordMobileMediaQuery.addEventListener('change', onRecordViewportChange)
   ensureRecordDateRange()
   void reload()
+})
+
+onBeforeUnmount(() => {
+  recordLoadObserver?.disconnect()
+  recordMobileMediaQuery?.removeEventListener('change', onRecordViewportChange)
 })
 </script>
 
@@ -670,6 +725,14 @@ th {
   gap: 12px;
 }
 
+.scroll-loader {
+  list-style: none;
+  padding: 10px 12px;
+  text-align: center;
+  color: var(--cl-olive);
+  font-size: 12px;
+}
+
 .fuel-rec-card {
   border: 1px solid var(--cl-border-cream);
   border-radius: 14px;
@@ -802,29 +865,46 @@ th {
 }
 
 @media (max-width: 768px) {
+  .stack.fuel-bills-view {
+    height: calc(100dvh - 80px);
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .rec-panel {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    flex-direction: column;
+  }
+
   .panel {
-    padding: 12px;
-    border-radius: 14px;
+    padding: 8px;
+    border-radius: 12px;
+  }
+
+  .hd {
+    display: none;
   }
 
   .rec-toolbar {
-    flex-direction: column;
+    flex: 0 0 auto;
     align-items: stretch;
-    gap: 10px;
+    gap: 6px;
+    margin-bottom: 7px;
+    padding: 7px;
+    border-radius: 10px;
   }
 
   .rec-filters {
-    flex-direction: column;
-    align-items: stretch;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 6px;
+    width: 100%;
   }
 
   .inline-label {
-    margin-top: 6px;
-  }
-
-  .rec-filters .inline-label:first-child {
-    margin-top: 0;
+    display: none;
   }
 
   .rec-filters :deep(.searchable-select) {
@@ -836,6 +916,10 @@ th {
   }
 
   .rec-filters :deep(.searchable-select__trigger) {
+    min-height: 38px;
+    height: 38px;
+    padding: 6px 9px;
+    border-radius: 9px;
     font-size: 16px;
     max-width: 100%;
   }
@@ -849,7 +933,7 @@ th {
     width: 100%;
     min-width: 0;
     max-width: 100%;
-    border-radius: 12px;
+    border-radius: 9px;
     overflow: hidden;
     box-sizing: border-box;
     transform: translateZ(0);
@@ -862,7 +946,10 @@ th {
     min-width: 0;
     display: block;
     box-sizing: border-box;
-    border-radius: 12px;
+    min-height: 38px;
+    height: 38px;
+    padding: 5px 7px;
+    border-radius: 9px;
   }
 
   .rec-filters .filter-control {
@@ -875,8 +962,10 @@ th {
   }
 
   .rec-query {
-    min-height: 44px;
-    font-size: 15px;
+    min-height: 36px;
+    padding: 6px 8px;
+    border-radius: 9px;
+    font-size: 12px;
     font-weight: 600;
   }
 
@@ -885,7 +974,7 @@ th {
     margin-left: 0;
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 10px;
+    gap: 6px;
   }
 
   .rec-actions .rec-query {
@@ -897,11 +986,55 @@ th {
   }
 
   .rec-mobile {
-    display: block;
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .rec-mobile__hint {
+    width: 100%;
     margin: 0 0 8px;
+    align-self: center;
+  }
+
+  .fuel-rec-cards {
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+    gap: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    border: 1px solid var(--cl-border-cream);
+    border-radius: 11px;
+    background: var(--cl-white);
+  }
+
+  .fuel-rec-card {
+    padding: 10px 11px;
+    border: 0;
+    border-bottom: 1px solid var(--cl-border-cream);
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .fuel-rec-card__top {
+    margin-bottom: 6px;
+  }
+
+  .fuel-rec-card__line {
+    margin-bottom: 3px;
+  }
+
+  .fuel-rec-card__grid {
+    margin: 7px 0;
+    padding-top: 7px;
+  }
+
+  .fuel-rec-card__station {
+    padding-top: 7px;
   }
 
   .rec-pager {

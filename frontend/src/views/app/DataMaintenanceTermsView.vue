@@ -84,7 +84,14 @@
         <ul v-else class="tree">
           <li v-for="l1 in tree" :key="l1.id" class="tree-l1">
             <div class="tree-row" :class="{ 'is-active': selectedL1Id === l1.id && !selectedL2Id }">
-              <button type="button" class="tree-toggle" @click="toggleL1(l1.id)">
+              <button
+                type="button"
+                class="tree-toggle"
+                :aria-expanded="expandedL1.has(l1.id)"
+                :aria-controls="`maintenance-term-group-${l1.id}`"
+                :aria-label="`${expandedL1.has(l1.id) ? '收起' : '展开'}${l1.name}`"
+                @click="toggleL1(l1.id)"
+              >
                 {{ expandedL1.has(l1.id) ? '▼' : '▶' }}
               </button>
               <button type="button" class="tree-label" @click="selectL1(l1)">
@@ -92,7 +99,11 @@
               </button>
               <button v-if="canEdit" type="button" class="tree-add" title="新增子类" @click.stop="openCreate(2, l1)">+</button>
             </div>
-            <ul v-show="expandedL1.has(l1.id)" class="tree-l2-list">
+            <ul
+              v-show="expandedL1.has(l1.id)"
+              :id="`maintenance-term-group-${l1.id}`"
+              class="tree-l2-list"
+            >
               <li v-for="l2 in l1.children" :key="l2.id">
                 <div class="tree-row tree-row--l2" :class="{ 'is-active': selectedL2Id === l2.id }">
                   <button type="button" class="tree-label" @click="selectL2(l1, l2)">{{ l2.name }}</button>
@@ -666,13 +677,26 @@ onMounted(() => {
 }
 
 .tree-toggle {
-  width: 22px;
+  display: inline-grid;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  padding: 0;
+  border-radius: 8px;
   font-size: 10px;
   color: var(--cl-olive);
 }
 
+.tree-toggle:hover,
+.tree-toggle:focus-visible {
+  background: rgba(142, 132, 109, 0.12);
+  outline: none;
+}
+
 .tree-label {
   flex: 1;
+  min-width: 0;
   text-align: left;
   padding: 6px 4px;
   font-size: 13px;
@@ -687,6 +711,7 @@ onMounted(() => {
 }
 
 .tree-add {
+  flex: 0 0 auto;
   padding: 2px 8px;
   border-radius: 8px;
   color: var(--cl-coral);

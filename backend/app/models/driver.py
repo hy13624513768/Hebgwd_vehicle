@@ -9,7 +9,7 @@ from app.db.base import Base
 class Driver(Base):
     """驾驶员档案（与《驾驶员数据库表》Excel 列一致）"""
 
-    __tablename__ = "bus_driver"
+    __tablename__ = "drivers"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     sort_no: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
@@ -26,10 +26,10 @@ class Driver(Base):
     first_hire_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     workshop_id: Mapped[int | None] = mapped_column(
-        ForeignKey("bus_workshop.id"), nullable=True, index=True
+        ForeignKey("workshops.id"), nullable=True, index=True
     )
-    user_id: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id"), nullable=True, unique=True)
-    created_by: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id"), nullable=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, unique=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

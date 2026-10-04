@@ -158,7 +158,7 @@ def create_user(db: DbSession, current: AccountAdmin, body: UserAdminCreate) -> 
 
 @router.post("/generate-driver-accounts", response_model=DriverAccountBatchResult)
 def generate_driver_accounts(db: DbSession, current: AccountAdmin) -> DriverAccountBatchResult:
-    """从驾驶员表（bus_driver）批量生成「车辆驾驶员」分级登录账号。
+    """从驾驶员表（drivers）批量生成「车辆驾驶员」分级登录账号。
 
     规则：用户名 = 姓名 + 身份证号后 6 位；密码统一为系统初始密码并做哈希存储。
     姓名为空、身份证号缺失或不足 6 位的记录计入 failed 并跳过；
@@ -184,6 +184,10 @@ def generate_driver_accounts(db: DbSession, current: AccountAdmin) -> DriverAcco
 
     drivers = list(db.scalars(select(Driver).order_by(Driver.id.asc())).all())
     for d in drivers:
+        if d.user_id:
+            skipped += 1
+            details.append(DriverAccountItem(driver_id=d.id, name=d.name, status="skipped", reason="已绑定登录账号"))
+            continue
         name = (d.name or "").strip()
         id_card = (d.id_card or "").strip()
         if not name:
@@ -215,15 +219,17 @@ def generate_driver_accounts(db: DbSession, current: AccountAdmin) -> DriverAcco
             )
             continue
 
-        db.add(
-            User(
+        account = User(
                 username=username,
                 password_hash=password_hash,
                 display_name=name,
                 role=VEHICLE_DRIVER,
+                workshop_id=d.workshop_id,
                 is_active=True,
             )
-        )
+        db.add(account)
+        db.flush()
+        d.user_id = account.id
         claimed.add(username)
         created += 1
         details.append(DriverAccountItem(driver_id=d.id, name=name, username=username, status="created"))
@@ -306,4 +312,8 @@ def delete_user(db: DbSession, current: AccountAdmin, user_id: int) -> None:
     if not can_actor_manage_user(current.role, row.username, row.role):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权删除该用户")
     db.delete(row)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "账号仍被业务记录引用，请停用账号")

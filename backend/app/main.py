@@ -1,36 +1,25 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi import HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
-from app.api.v1.auth import bootstrap_admin_if_needed
 from app.api.v1.router import api_router
 from app.core.config import settings
-from app.db.base import Base
-from app.db.migrate import run_runtime_migrations
-from app.db.session import SessionLocal, engine
-from app import models  # noqa: F401
-from app.services import seed_service
-from app.services.workshop_service import sync_workshops_master_and_links
+from app.db.bootstrap import initialize_database
+from app.db.session import engine
+from app.services.media_storage_service import assert_storage_ready
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Base.metadata.create_all(bind=engine)
-    run_runtime_migrations()
-    db = SessionLocal()
+    if settings.auto_db_init:
+        initialize_database()
     try:
-        bootstrap_admin_if_needed(db)
-        sync_workshops_master_and_links(db)
-        seed_service.seed_nav_presets_if_empty(db)
-        seed_service.seed_maintenance_terms_if_empty(db)
-        if settings.demo_seeding_enabled:
-            seed_service.seed_standard_accounts(db)
-            seed_service.seed_demo_if_empty(db)
-            seed_service.link_demo_driver_accounts(db)
+        yield
     finally:
-        db.close()
-    yield
+        engine.dispose()
 
 
 app = FastAPI(title="哈尔滨工务段汽车管理信息系统", lifespan=lifespan)
@@ -54,3 +43,18 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok", "environment": settings.environment}
+
+
+@app.get("/ready")
+def ready():
+    """就绪检查：确认应用进程可以访问数据库。"""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        assert_storage_ready()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="database or media storage unavailable",
+        ) from exc
+    return {"status": "ready", "environment": settings.environment}

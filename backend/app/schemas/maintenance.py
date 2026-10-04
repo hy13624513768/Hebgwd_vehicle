@@ -1,10 +1,13 @@
 from datetime import date, datetime
 from decimal import Decimal
 
+from app.schemas.patch import PatchModel
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class MaintenanceCreate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
     vehicle_id: int = Field(ge=1)
     service_date: date
     category: str = Field(min_length=1, max_length=32)
@@ -14,7 +17,9 @@ class MaintenanceCreate(BaseModel):
     description: str | None = None
 
 
-class MaintenanceUpdate(BaseModel):
+class MaintenanceUpdate(PatchModel):
+    nullable_fields = {"description"}
+
     vehicle_id: int | None = Field(default=None, ge=1)
     service_date: date | None = None
     category: str | None = Field(default=None, max_length=32)

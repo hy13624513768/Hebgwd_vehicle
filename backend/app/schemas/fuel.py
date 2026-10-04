@@ -64,6 +64,20 @@ class FuelRecordPage(BaseModel):
     total: int
 
 
+class FuelEntryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    vehicle_id: int
+    plate_number: str = ""
+    odometer: int
+    fueled_at: datetime
+    has_photo: bool = False
+    created_by: int
+    created_at: datetime
+    updated_at: datetime
+
+
 class FuelBalanceOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

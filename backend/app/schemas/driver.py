@@ -1,5 +1,8 @@
 import re
 from datetime import date, datetime
+from typing import Literal
+
+from app.schemas.patch import PatchModel
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -27,6 +30,7 @@ def _normalize_id_card(value: str | None) -> str | None:
 
 
 class DriverCreate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
     sort_no: int | None = Field(default=None, ge=0)
     name: str = Field(min_length=1, max_length=64)
     phone: str = Field(min_length=11, max_length=11)
@@ -34,8 +38,6 @@ class DriverCreate(BaseModel):
     vehicle_type_label: str = Field(default="", max_length=64)
     status: str = Field(default="", max_length=64)
     id_card: str | None = Field(default=None, max_length=18)
-    health_check_report: str | None = None
-    outsourcing_onboarding: str | None = None
     first_hire_date: date | None = None
     workshop_id: int | None = Field(default=None, description="所属车间主数据 ID")
     user_id: int | None = None
@@ -51,7 +53,9 @@ class DriverCreate(BaseModel):
         return _normalize_id_card(value)
 
 
-class DriverUpdate(BaseModel):
+class DriverUpdate(PatchModel):
+    nullable_fields = {"sort_no", "id_card", "first_hire_date", "workshop_id", "user_id"}
+
     sort_no: int | None = Field(default=None, ge=0)
     name: str | None = Field(default=None, min_length=1, max_length=64)
     phone: str | None = Field(default=None, min_length=11, max_length=11)
@@ -59,8 +63,6 @@ class DriverUpdate(BaseModel):
     vehicle_type_label: str | None = Field(default=None, max_length=64)
     status: str | None = Field(default=None, max_length=64)
     id_card: str | None = Field(default=None, max_length=18)
-    health_check_report: str | None = None
-    outsourcing_onboarding: str | None = None
     first_hire_date: date | None = None
     workshop_id: int | None = Field(default=None, description="所属车间主数据 ID")
     user_id: int | None = None
@@ -98,6 +100,17 @@ class DriverOut(BaseModel):
     created_by: int | None
     created_at: datetime
     updated_at: datetime
+    is_restricted: bool = False
+    has_health_check_report: bool = False
+    has_outsourcing_onboarding: bool = False
+
+
+class DriverDocumentOut(BaseModel):
+    kind: Literal["health_check_report", "outsourcing_onboarding"]
+    original_name: str
+    content_type: str
+    size_bytes: int
+    created_at: datetime
 
 
 class DriverListOut(BaseModel):

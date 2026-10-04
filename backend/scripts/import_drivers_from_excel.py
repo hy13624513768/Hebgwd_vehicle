@@ -1,4 +1,4 @@
-"""从 Excel 导入驾驶员到 bus_driver。
+"""从 Excel 导入驾驶员到 drivers。
 
 支持两种 Sheet1 格式（按表头自动识别）：
 - 6 列：车间、姓名、状态、准驾车型、电话号码、身份证号
@@ -28,7 +28,7 @@ from sqlalchemy import delete, func, select, update
 
 from app import models  # noqa: F401
 from app.data.workshop_canonical import resolve_canonical_workshop_name
-from app.db.migrate import run_runtime_migrations
+from app.db.migrate import run_pre_create_migrations, run_runtime_migrations
 from app.db.session import SessionLocal, engine
 from app.db.base import Base
 from app.models.driver import Driver
@@ -290,10 +290,11 @@ def main() -> None:
     ap.add_argument(
         "--fresh",
         action="store_true",
-        help="清空 bus_driver 后按 Excel 全量导入（推荐首次对齐档案）",
+        help="清空 drivers 后按 Excel 全量导入（推荐首次对齐档案）",
     )
     args = ap.parse_args()
 
+    run_pre_create_migrations()
     Base.metadata.create_all(bind=engine)
     run_runtime_migrations()
     import_drivers(args.file.resolve(), dry_run=args.dry_run, fresh=args.fresh)

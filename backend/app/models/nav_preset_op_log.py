@@ -9,7 +9,7 @@ from app.db.base import Base
 class NavPresetOpLog(Base):
     """段内导航标记点操作审计（不含地图拖动过程）。"""
 
-    __tablename__ = "bus_nav_preset_op_log"
+    __tablename__ = "nav_preset_operation_logs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)

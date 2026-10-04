@@ -19,6 +19,8 @@
         <p v-else-if="!roleDefsLoading" class="muted">暂无分级说明数据</p>
       </section>
 
+      <p class="accounts-mobile-summary">共 {{ total }} 个账号 · 已显示 {{ items.length }} 个</p>
+
       <div class="toolbar">
         <div class="toolbar__search-wrap">
           <input
@@ -70,7 +72,11 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in items" :key="row.id" class="data-table__row">
+            <template v-for="group in accountGroups" :key="group.workshop">
+            <tr class="account-workshop-row">
+              <td colspan="5"><strong>{{ group.workshop }}</strong><span>{{ group.items.length }} 个账号</span></td>
+            </tr>
+            <tr v-for="row in group.items" :key="row.id" class="data-table__row">
               <td data-label="用户名">
                 <span class="mono">{{ row.username }}</span>
                 <span v-if="row.username.toLowerCase() === 'admin'" class="tag tag--sys">内置</span>
@@ -98,12 +104,18 @@
                 </div>
               </td>
             </tr>
+            </template>
           </tbody>
         </table>
         <p v-if="!items.length && !loading" class="muted empty">暂无账号数据</p>
+        <div v-if="isMobile && items.length" ref="mobileLoadMoreRef" class="account-scroll-loader">
+          <span v-if="loadingMore">正在加载更多账号…</span>
+          <span v-else-if="hasMore">继续下滑加载</span>
+          <span v-else>已加载全部账号</span>
+        </div>
       </div>
 
-      <div v-if="total > 0" class="pager">
+      <div v-if="total > 0 && !isMobile" class="pager">
         <span class="pager__meta">本页 {{ items.length }} 条 · 共 {{ total }} 条</span>
         <span class="pager__info">第 {{ pageNum }} / {{ totalPages }} 页</span>
         <button type="button" class="btn btn--ghost pager__btn" :disabled="skip <= 0 || loading" @click="pagePrev">
@@ -172,10 +184,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import * as usersApi from '@/api/users'
 import type { RoleDefinition, UserAdmin } from '@/api/users'
+import { fetchWorkshops, type Workshop } from '@/api/workshops'
 import AppModal from '@/components/AppModal.vue'
 import { usePermissions } from '@/composables/usePermissions'
 import { useUserStore } from '@/stores/user'
@@ -195,6 +208,7 @@ const CANONICAL_ROLE_ORDER = [
 const roleDefs = ref<RoleDefinition[]>([])
 const roleDefsLoading = ref(false)
 const assignable = ref<string[]>([])
+const workshops = ref<Workshop[]>([])
 
 const PAGE_SIZE = 15
 
@@ -204,6 +218,12 @@ const skip = ref(0)
 const q = ref('')
 const filterRole = ref('')
 const loading = ref(false)
+const loadingMore = ref(false)
+const mobileLoadMoreRef = ref<HTMLElement | null>(null)
+const isMobile = ref(typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches)
+const hasMore = computed(() => items.value.length < total.value)
+let loadObserver: IntersectionObserver | null = null
+let mobileMediaQuery: MediaQueryList | null = null
 
 const msg = ref('')
 const msgIsErr = ref(false)
@@ -228,6 +248,26 @@ const modalTitle = computed(() => (modalMode.value === 'create' ? '新建账号'
 const pageNum = computed(() => Math.floor(skip.value / PAGE_SIZE) + 1)
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE) || 1))
+
+const accountGroups = computed(() => {
+  const workshopNames = new Map(workshops.value.map((workshop) => [workshop.id, workshop.name]))
+  const grouped = new Map<string, UserAdmin[]>()
+  for (const user of items.value) {
+    const workshop = user.workshop_id
+      ? workshopNames.get(user.workshop_id) || `未知车间 #${user.workshop_id}`
+      : '段级 / 全局账号'
+    const rows = grouped.get(workshop) ?? []
+    rows.push(user)
+    grouped.set(workshop, rows)
+  }
+  return [...grouped.entries()]
+    .sort(([a], [b]) => {
+      if (a === '段级 / 全局账号') return -1
+      if (b === '段级 / 全局账号') return 1
+      return a.localeCompare(b, 'zh-CN', { sensitivity: 'accent' })
+    })
+    .map(([workshop, rows]) => ({ workshop, items: rows }))
+})
 
 const roleFilterOptions = computed(() => {
   const opts: { value: string; label: string }[] = [{ value: '', label: '全部分级' }]
@@ -325,12 +365,14 @@ function roleLabel(role: string) {
 async function loadMeta() {
   roleDefsLoading.value = true
   try {
-    const [defs, roles] = await Promise.all([
+    const [defs, roles, workshopRows] = await Promise.all([
       usersApi.fetchRoleDefinitions(),
       usersApi.fetchAssignableRoles(),
+      fetchWorkshops(),
     ])
     roleDefs.value = defs
     assignable.value = roles
+    workshops.value = workshopRows
     if (roles.length && !roles.includes(form.value.role)) {
       form.value.role = defaultAssignableRole()
     }
@@ -341,8 +383,9 @@ async function loadMeta() {
   }
 }
 
-async function loadUsers() {
-  loading.value = true
+async function loadUsers(append = false) {
+  if (append) loadingMore.value = true
+  else loading.value = true
   msg.value = ''
   try {
     const res = await usersApi.listUsers({
@@ -363,15 +406,51 @@ async function loadUsers() {
       items.value = res2.items
       total.value = res2.total
     } else {
-      items.value = res.items
+      items.value = append ? [...items.value, ...res.items] : res.items
       total.value = res.total
     }
+    return true
   } catch (e: unknown) {
     msg.value = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || '加载账号列表失败'
     msgIsErr.value = true
+    return false
   } finally {
-    loading.value = false
+    if (append) loadingMore.value = false
+    else loading.value = false
+    await nextTick()
+    setupLoadObserver()
   }
+}
+
+async function loadMore() {
+  if (!isMobile.value || loading.value || loadingMore.value || !hasMore.value) return
+  const previousSkip = skip.value
+  skip.value = items.value.length
+  const ok = await loadUsers(true)
+  if (!ok) skip.value = previousSkip
+}
+
+function setupLoadObserver() {
+  loadObserver?.disconnect()
+  loadObserver = null
+  if (!isMobile.value || typeof IntersectionObserver === 'undefined') return
+  const target = mobileLoadMoreRef.value
+  if (!target) return
+  loadObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) void loadMore()
+    },
+    { rootMargin: '120px 0px' },
+  )
+  loadObserver.observe(target)
+}
+
+function onViewportChange(event: MediaQueryListEvent | MediaQueryList) {
+  const changed = isMobile.value !== event.matches
+  isMobile.value = event.matches
+  if (!changed) return
+  skip.value = 0
+  void loadUsers()
 }
 
 function runSearch() {
@@ -462,6 +541,7 @@ async function submitModal() {
       }
     }
     modalOpen.value = false
+    if (isMobile.value) skip.value = 0
     await loadUsers()
   } catch (e: unknown) {
     const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -483,6 +563,7 @@ async function confirmDelete(row: UserAdmin) {
       me.logout()
       return
     }
+    if (isMobile.value) skip.value = 0
     await loadUsers()
   } catch (e: unknown) {
     const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -520,8 +601,15 @@ async function generateDriverAccounts() {
 
 onMounted(async () => {
   if (!perm.canManageAccounts.value) return
+  mobileMediaQuery = window.matchMedia('(max-width: 768px)')
+  mobileMediaQuery.addEventListener('change', onViewportChange)
   await loadMeta()
   await loadUsers()
+})
+
+onBeforeUnmount(() => {
+  loadObserver?.disconnect()
+  mobileMediaQuery?.removeEventListener('change', onViewportChange)
 })
 </script>
 
@@ -532,6 +620,17 @@ onMounted(async () => {
   margin: 0 auto;
   box-sizing: border-box;
   padding-inline: 0;
+}
+
+.accounts-mobile-summary {
+  display: none;
+}
+
+.account-scroll-loader {
+  padding: 10px 12px;
+  text-align: center;
+  color: var(--cl-olive);
+  font-size: 12px;
 }
 
 .role-intro {
@@ -601,6 +700,12 @@ onMounted(async () => {
   align-items: stretch;
   gap: 0.65rem;
   margin-bottom: 1rem;
+  padding: 0.7rem;
+  border: 1px solid rgba(201, 100, 66, 0.15);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 10% 0%, rgba(201, 100, 66, 0.16), transparent 36%),
+    linear-gradient(125deg, rgba(255, 255, 255, 0.95), rgba(239, 232, 215, 0.58));
 }
 
 .toolbar__search-wrap {
@@ -730,6 +835,24 @@ onMounted(async () => {
 
 .data-table__row:hover td {
   background: rgba(245, 229, 218, 0.22);
+}
+
+.account-workshop-row td {
+  padding: 0.58rem 0.7rem;
+  background: linear-gradient(90deg, rgba(201, 100, 66, 0.15), rgba(239, 232, 215, 0.5) 64%, transparent);
+  border-bottom-color: rgba(201, 100, 66, 0.2);
+}
+
+.account-workshop-row strong {
+  color: var(--cl-near-black);
+  font-size: 0.88rem;
+}
+
+.account-workshop-row span {
+  margin-left: 0.65rem;
+  color: var(--cl-olive);
+  font-size: 0.72rem;
+  font-weight: 600;
 }
 
 .mono {
@@ -943,6 +1066,20 @@ select.inp {
     gap: 0.75rem;
   }
 
+  .account-workshop-row {
+    display: block;
+  }
+
+  .data-table .account-workshop-row td {
+    display: block;
+    width: auto;
+    padding: 0.62rem 0.75rem;
+  }
+
+  .data-table .account-workshop-row td::before {
+    content: none;
+  }
+
   .data-table tr.data-table__row {
     display: block;
     border: 1px solid var(--cl-border-cream);
@@ -1012,6 +1149,167 @@ select.inp {
 
   .role-intro__badge {
     font-size: 0.92rem;
+  }
+}
+
+/* 手机端：角色说明收起，控件紧凑排列，账号卡片在固定区域内滚动。 */
+@media (max-width: 768px) {
+  .accounts-view {
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .role-intro {
+    display: none;
+  }
+
+  .accounts-mobile-summary {
+    display: block;
+    flex: 0 0 auto;
+    margin: 0 2px 6px;
+    color: var(--cl-olive);
+    font-size: 12px;
+    line-height: 1.25;
+  }
+
+  .toolbar {
+    flex: 0 0 auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+
+  .toolbar__search-wrap {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
+  }
+
+  .toolbar__search,
+  .toolbar__select,
+  .toolbar .btn {
+    min-height: 38px;
+    padding: 7px 9px;
+    border-radius: 9px;
+    font-size: 13px;
+  }
+
+  .toolbar__field {
+    min-width: 0;
+  }
+
+  .toolbar__label {
+    display: none;
+  }
+
+  .toolbar > .btn--primary {
+    width: 100%;
+  }
+
+  .toolbar > .btn:last-child {
+    grid-column: 1 / -1;
+    min-height: 34px;
+    font-size: 12px;
+  }
+
+  .msg {
+    flex: 0 0 auto;
+    margin-bottom: 5px;
+    font-size: 12px;
+  }
+
+  .table-wrap {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border: 1px solid var(--cl-border-cream);
+    border-radius: 12px;
+    background: var(--cl-white);
+  }
+
+  .data-table tbody {
+    gap: 0;
+  }
+
+  .account-workshop-row {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }
+
+  .data-table tr.data-table__row {
+    border: 0;
+    border-bottom: 1px solid var(--cl-border-cream);
+    border-radius: 0;
+    box-shadow: none;
+    background: var(--cl-white);
+  }
+
+  .data-table tr.data-table__row:last-child {
+    border-bottom: 0;
+  }
+
+  .data-table td {
+    grid-template-columns: 60px minmax(0, 1fr);
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  .data-table td::before {
+    font-size: 11px;
+  }
+
+  .data-table td:first-child {
+    padding-top: 9px;
+    font-weight: 700;
+  }
+
+  .data-table td:last-child {
+    padding-bottom: 8px;
+  }
+
+  .link-btn {
+    min-height: 30px;
+    padding: 4px 8px;
+    font-size: 12px;
+    text-decoration: none;
+  }
+
+  .pager {
+    display: none;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 5px;
+    margin-top: 6px;
+    padding: 6px;
+    border: 1px solid var(--cl-border-cream);
+    border-radius: 10px;
+    background: var(--cl-warm-sand);
+    font-size: 11px;
+  }
+
+  .pager__meta {
+    display: none;
+  }
+
+  .pager__info {
+    order: 0;
+    min-width: 0;
+    text-align: left;
+  }
+
+  .pager__btn {
+    width: auto;
+    min-height: 32px;
+    padding: 5px 9px;
+    font-size: 12px;
   }
 }
 </style>

@@ -10,7 +10,9 @@ class NavPresetMarker(BaseModel):
 
 class NavPresetListOut(BaseModel):
     markers: list[NavPresetMarker]
+    revision: str
 
 
 class NavPresetReplaceIn(BaseModel):
     markers: list[NavPresetMarker] = Field(min_length=1)
+    revision: str | None = None

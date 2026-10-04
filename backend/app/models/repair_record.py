@@ -10,11 +10,11 @@ from app.db.base import Base
 class RepairRecord(Base):
     """驾驶员维修上报（含结算单照片，识别后流转至维修保养）。"""
 
-    __tablename__ = "bus_repair_record"
+    __tablename__ = "repair_records"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    vehicle_id: Mapped[int] = mapped_column(ForeignKey("bus_vehicle.id"), nullable=False, index=True)
-    driver_id: Mapped[int | None] = mapped_column(ForeignKey("bus_driver.id"), nullable=True, index=True)
+    vehicle_id: Mapped[int] = mapped_column(ForeignKey("vehicles.id"), nullable=False, index=True)
+    driver_id: Mapped[int | None] = mapped_column(ForeignKey("drivers.id"), nullable=True, index=True)
     repair_order_no: Mapped[str] = mapped_column(String(128), default="", nullable=False, index=True)
 
     photo_duo_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
@@ -23,7 +23,7 @@ class RepairRecord(Base):
     photo_settlement_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     status: Mapped[str] = mapped_column(String(32), default="submitted", nullable=False, index=True)
-    created_by: Mapped[int] = mapped_column(ForeignKey("sys_user.id"), nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -39,11 +39,11 @@ class RepairRecord(Base):
 class RepairSettlement(Base):
     """结算单 AI 识别结果（与维修上报一对一）。"""
 
-    __tablename__ = "bus_repair_settlement"
+    __tablename__ = "repair_settlements"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     repair_record_id: Mapped[int] = mapped_column(
-        ForeignKey("bus_repair_record.id"),
+        ForeignKey("repair_records.id"),
         nullable=False,
         unique=True,
         index=True,
@@ -79,11 +79,11 @@ class RepairSettlement(Base):
 class RepairSettlementLine(Base):
     """结算单明细行 + 维修词条归类。"""
 
-    __tablename__ = "bus_repair_settlement_line"
+    __tablename__ = "repair_settlement_lines"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     settlement_id: Mapped[int] = mapped_column(
-        ForeignKey("bus_repair_settlement.id", ondelete="CASCADE"),
+        ForeignKey("repair_settlements.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -97,7 +97,7 @@ class RepairSettlementLine(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"), nullable=False)
     raw_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
-    term_id: Mapped[int | None] = mapped_column(ForeignKey("bus_maintenance_term.id"), nullable=True, index=True)
+    term_id: Mapped[int | None] = mapped_column(ForeignKey("maintenance_terms.id"), nullable=True, index=True)
     term_name: Mapped[str] = mapped_column(String(128), default="", nullable=False)
     category_l1: Mapped[str] = mapped_column(String(128), default="", nullable=False)
     category_l2: Mapped[str] = mapped_column(String(128), default="", nullable=False)

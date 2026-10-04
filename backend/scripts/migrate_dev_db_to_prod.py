@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""将开发库 bus_system_test 复制到生产库（覆盖生产数据）。
+"""将开发库 hebgwd_development 复制到生产库（覆盖生产数据）。
 
 默认迁移全部业务表。加 --exclude-nav 时保留生产库中的段内导航数据
-（bus_nav_preset、bus_nav_preset_op_log 不覆盖）。
+（nav_presets、nav_preset_operation_logs 不覆盖）。
 
 用法（内网）：
-    export DEV_DATABASE_URL="postgresql://postgres:***@bus-system-postgresql.ns-1ht608x0.svc:5432/bus_system_test"
-    export PROD_DATABASE_URL="postgresql://postgres:***@test-db-postgresql.ns-1ht608x0.svc:5432/bus_system_test"
+    export DEV_DATABASE_URL="postgresql://postgres:***@hebgwd-fullstack-db-postgresql.ns-1ht608x0.svc:5432/hebgwd_development"
+    export PROD_DATABASE_URL="postgresql://postgres:***@PRODUCTION_DB_HOST:5432/PRODUCTION_DB_NAME"
     python scripts/migrate_dev_db_to_prod.py
     python scripts/migrate_dev_db_to_prod.py --exclude-nav
 """
@@ -28,15 +28,17 @@ from psycopg2 import sql
 from sqlalchemy import create_engine
 
 from app.db.base import Base
+from app.db import migrate as migrate_mod
+from app.db.structure import POSTGRES_SEARCH_PATH_OPTION, TABLE_SCHEMAS
 
 import app.models  # noqa: F401
 
-NAV_TABLES = frozenset({"bus_nav_preset", "bus_nav_preset_op_log"})
+NAV_TABLES = frozenset({"nav_presets", "nav_preset_operation_logs"})
 
 def _require_dsn(name: str) -> str:
     val = os.environ.get(name, "").strip()
     if not val:
-        raise SystemExit(f"请设置环境变量 {name}（postgresql://.../bus_system_test）")
+        raise SystemExit(f"请设置环境变量 {name}（postgresql://.../DATABASE_NAME）")
     return val.replace("postgresql+psycopg2://", "postgresql://", 1)
 
 
@@ -45,16 +47,15 @@ PROD_DSN = _require_dsn("PROD_DATABASE_URL")
 PROD_SQLALCHEMY = PROD_DSN.replace("postgresql://", "postgresql+psycopg2://", 1)
 
 
-def list_public_tables(conn) -> list[str]:
+def list_business_tables(conn) -> list[str]:
+    """返回当前结构中真实存在的业务表。"""
     with conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT tablename FROM pg_tables
-            WHERE schemaname = 'public'
-            ORDER BY tablename
-            """
-        )
-        return [r[0] for r in cur.fetchall()]
+        existing: list[str] = []
+        for table, schema in TABLE_SCHEMAS.items():
+            cur.execute("SELECT to_regclass(%s)", (f"{schema}.{table}",))
+            if cur.fetchone()[0] is not None:
+                existing.append(table)
+        return sorted(existing)
 
 
 def copy_table(src, dst, table: str) -> int:
@@ -103,20 +104,31 @@ def reset_sequences(conn, tables: list[str]) -> None:
 
 def ensure_prod_schema() -> None:
     print("同步生产库表结构（补齐缺失表）…")
-    engine = create_engine(PROD_SQLALCHEMY)
-    Base.metadata.create_all(bind=engine)
+    engine = create_engine(
+        PROD_SQLALCHEMY,
+        connect_args={"options": f"-csearch_path={POSTGRES_SEARCH_PATH_OPTION}"},
+    )
+    old_engine = migrate_mod.engine
+    try:
+        migrate_mod.engine = engine
+        migrate_mod.run_pre_create_migrations()
+        Base.metadata.create_all(bind=engine)
+        migrate_mod.run_runtime_migrations()
+    finally:
+        migrate_mod.engine = old_engine
     engine.dispose()
 
 
 def migrate(*, exclude_nav: bool = False) -> None:
     ensure_prod_schema()
     print("连接开发库与生产库…")
-    src = psycopg2.connect(DEV_DSN)
-    dst = psycopg2.connect(PROD_DSN)
+    options = f"-c search_path={POSTGRES_SEARCH_PATH_OPTION}"
+    src = psycopg2.connect(DEV_DSN, options=options)
+    dst = psycopg2.connect(PROD_DSN, options=options)
     src.autocommit = False
     dst.autocommit = False
     try:
-        all_tables = list_public_tables(src)
+        all_tables = list_business_tables(src)
         skip = NAV_TABLES if exclude_nav else frozenset()
         tables = [t for t in all_tables if t not in skip]
         kept = [t for t in all_tables if t in skip]
@@ -167,7 +179,7 @@ def main() -> None:
     ap.add_argument(
         "--exclude-nav",
         action="store_true",
-        help="不覆盖 bus_nav_preset / bus_nav_preset_op_log（保留生产环境导航数据）",
+        help="不覆盖 nav_presets / nav_preset_operation_logs（保留生产环境导航数据）",
     )
     args = ap.parse_args()
     migrate(exclude_nav=args.exclude_nav)

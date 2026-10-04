@@ -1,23 +1,49 @@
 # FastAPI 后端（哈尔滨工务段汽车管理信息系统）
 
+代码分层、权限与状态约束、回归测试、升级注意及暂缓事项见 [代码加固与后续开发说明](../docs/development-hardening.md)。
+
 ## 环境
 
 建议使用已创建的 Conda 环境：`D:\miniconda\envs\bus_fastapi_vue3`
 
 ## 配置
 
-将 `backend/.env.example` 复制为 `backend/.env` 并按需修改数据库连接与 `JWT_SECRET`。  
-默认示例指向 **Sealos 集群内 PostgreSQL**；本地开发请改用 `.env.example` 末尾注释中的 `127.0.0.1:55432`（或你的本机/Docker 端口）。
+将 `backend/.env.example` 复制为 `backend/.env` 并按需修改数据库连接与 `JWT_SECRET`。
+
+本机开发推荐使用项目内 SQLite：
+
+```env
+DATABASE_URL=sqlite:///./data/local-dev.db
+DEMO_SEEDING_ENABLED=true
+```
+
+在 `backend` 目录首次启动后端时，会自动创建 `backend/data/local-dev.db`，并写入演示账号、车辆、驾驶员、派车、维保、油卡和导航数据。SQLite 仅用于本地开发演示；Sealos 测试与生产环境继续使用 PostgreSQL。
+
+如需把线上开发库完整复制到本地 SQLite，在 `backend` 目录临时设置只读来源连接串并运行：
+
+```powershell
+$env:SOURCE_DATABASE_URL = "postgresql+psycopg2://用户名:密码@外网地址:端口/hebgwd_development"
+python scripts/sync_online_to_local.py --reset-local-admin
+Remove-Item Env:SOURCE_DATABASE_URL
+```
+
+脚本会先生成临时库并校验外键，成功后备份现有 `local-dev.db` 再替换。`--reset-local-admin` 只修改本地副本中的管理员密码，使其与 `backend/.env` 一致。数据库文件含真实业务数据且已被 Git 忽略，禁止提交或外传。
 
 **正式上线、多环境（测试/预发/生产）配置要点**见仓库根目录 `docs/deployment.md`。
 
 ## 启动
 
-在 `backend` 目录执行：
+Sealos DevBox 中可在仓库根目录同时启动前后端：
+
+```bash
+bash deploy/run-devbox.sh
+```
+
+仅调试后端时，在 `backend` 目录执行：
 
 ```powershell
-Set-Location "E:\VS_code\project\公车系统\系统复现\backend"
-& "D:\miniconda\envs\bus_fastapi_vue3\python.exe" -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+Set-Location "E:\VS_code\project\Hebgwd_vehicle\backend"
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 ## 从桌面 Excel 导入真实台账（初始数据）
@@ -27,16 +53,16 @@ Set-Location "E:\VS_code\project\公车系统\系统复现\backend"
 
 | 关键词（文件名含）   | 导入目标                                       |
 | ----------- | ------------------------------------------ |
-| `明细`        | 公务用车明细 → `bus_vehicle`                     |
-| `年检` / `审验` | 年检台账 → `bus_maintenance`（类别：年检）            |
-| `维修` / `维保` | 维修保养 → `bus_maintenance`（类别：维修）            |
+| `明细`        | 公务用车明细 → `vehicles`                     |
+| `年检` / `审验` | 年检台账 → `maintenance_records`（类别：年检）            |
+| `维修` / `维保` | 维修保养 → `maintenance_records`（类别：维修）            |
 | `保险`        | 保险台账 → `bus_expense`（类别：保险费）               |
-| `燃油` / `油费` | 燃油统计 → `bus_fuel_card` + `bus_fuel_record` |
+| `燃油` / `油费` | 燃油统计 → `fuel_cards` + `fuel_records` |
 | `停车` / `过路` | 停车过路 → `bus_expense`（类别：停车路桥费）             |
 
 
 1. 安装依赖：`pip install -r requirements.txt`（含 `openpyxl`）。
-2. **先启动一次后端**（或单独运行迁移），确保数据库已创建且 `bus_vehicle` 等表存在；启动时会自动执行运行时迁移，为车辆表补齐 Excel 扩展字段。
+2. **先启动一次后端**（或单独运行迁移），确保数据库已创建且 `vehicles` 等表存在；启动时会自动执行运行时迁移，为车辆表补齐 Excel 扩展字段。
 3. 导入（`**--clear` 会清空车辆/驾驶员/申请/维保/油卡/加油/费用等业务表，不删用户**）：
 
 ```powershell
@@ -46,11 +72,11 @@ python scripts/import_real_excel.py --clear
 python scripts/import_real_excel.py --dir "C:\Users\HY\Desktop\数据" --dry-run
 ```
 
-导入后 `seed_demo_if_empty` 因车辆表非空不会再写入演示数据。
+真实数据环境应设置 `DEMO_SEEDING_ENABLED=false`；演示初始化会按各业务表是否为空判断，并非只看车辆表。
 
 ### 油卡卡号主数据（`卡号.xlsx` 的 B/C/D 列）
 
-卡号单独落在表 `**bus_fuel_card_number**`（ORM：`FuelCardNumber`）；默认还会按卡号 **同步/新建** `bus_fuel_card` 的「发行方」「持卡人」（来自 C、D 列），**不改动已有油卡余额**。
+卡号映射落在表 `fuel_card_lookups`；默认还会按卡号同步或新建 `fuel_cards` 的对应信息，**不改动已有油卡余额**。
 
 默认 Excel 路径：`D:\Desktop\获取油卡余额\卡号.xlsx`。请先启动过一次后端（或确保库表已 `create_all`）。
 
@@ -70,7 +96,7 @@ python scripts/import_real_excel.py --dir "C:\Users\HY\Desktop\数据" --backfil
 # 先试跑：加 --dry-run
 ```
 
-### 导出 `bus_vehicle` 表结构 + 全表 CSV（本地查看）
+### 导出 `vehicles` 表结构 + 全表 CSV（本地查看）
 
 输出目录默认 `backend/exports/`（已在仓库 `.gitignore` 中忽略，勿提交敏感数据）：
 
@@ -120,4 +146,4 @@ python scripts/export_bus_vehicle.py --out "D:\exports"
 - `GET/POST/PATCH/DELETE /api/v1/expenses`
 - `GET /api/v1/reports/export/*.csv`（UTF-8 BOM，便于 Excel 打开）
 
-数据库若由旧版本升级而来，启动时会自动尝试补齐 `sys_user.role` 与 `bus_driver.user_id` 字段。
+数据库若由旧版本升级而来，启动时会自动重命名旧表，并补齐 `users.role` 与 `drivers.user_id` 字段。

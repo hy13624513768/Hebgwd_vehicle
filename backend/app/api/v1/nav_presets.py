@@ -1,9 +1,12 @@
+import hashlib
+import json
+from threading import Lock
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 
 from app.core.deps import CurrentUser, DbSession
 from app.core.rbac import FleetUser
-from app.core.roles import is_fleet_management
+from app.core.roles import is_fleet_management, can_delete_nav_preset
 from app.models.nav_preset import NavPreset
 from app.models.nav_preset_op_log import NavPresetOpLog
 from app.schemas.nav_preset import NavPresetListOut, NavPresetMarker, NavPresetReplaceIn
@@ -22,15 +25,14 @@ def _assert_unique_marker_names(markers: list[NavPresetMarker]) -> None:
         seen.add(key)
 
 router = APIRouter(prefix="/nav-presets", tags=["nav-presets"])
+_write_lock = Lock()
 
 
 def _list_from_db(db) -> NavPresetListOut:
     rows = db.scalars(select(NavPreset).order_by(NavPreset.sort_order.asc(), NavPreset.id.asc())).all()
-    return NavPresetListOut(
-        markers=[
-            NavPresetMarker(name=r.name, lng=r.lng, lat=r.lat, locked=bool(r.is_locked)) for r in rows
-        ],
-    )
+    markers = [NavPresetMarker(name=r.name, lng=r.lng, lat=r.lat, locked=bool(r.is_locked)) for r in rows]
+    revision = hashlib.sha256(json.dumps([m.model_dump() for m in markers], sort_keys=True).encode()).hexdigest()
+    return NavPresetListOut(markers=markers, revision=revision)
 
 
 @router.get("", response_model=NavPresetListOut)
@@ -40,9 +42,22 @@ def list_nav_presets(db: DbSession, _: CurrentUser) -> NavPresetListOut:
 
 
 @router.put("", response_model=NavPresetListOut)
-def replace_nav_presets(db: DbSession, body: NavPresetReplaceIn, _: FleetUser) -> NavPresetListOut:
+def replace_nav_presets(db: DbSession, body: NavPresetReplaceIn, current: FleetUser) -> NavPresetListOut:
+    with _write_lock:
+        if db.bind.dialect.name == "postgresql":
+            db.execute(text("SELECT pg_advisory_xact_lock(82473103)"))
+        return _replace_nav_presets(db, body, current)
+
+
+def _replace_nav_presets(db, body, current):
     """车队管理类角色可整体替换预设点列表（与前端 v-model 同步）。"""
     _assert_unique_marker_names(body.markers)
+    existing = set(db.scalars(select(NavPreset.name)).all())
+    incoming = {marker.name.strip() for marker in body.markers}
+    if existing - incoming and not can_delete_nav_preset(current.role):
+        raise HTTPException(403, "当前角色不能删除或重命名已有标记点")
+    if body.revision != _list_from_db(db).revision:
+        raise HTTPException(409, "导航点已更新，请重新加载后再保存")
     db.execute(delete(NavPreset))
     for i, m in enumerate(body.markers):
         db.add(

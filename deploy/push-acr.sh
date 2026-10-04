@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # 构建并推送前后端镜像到阿里云容器镜像服务 ACR（华北2 北京）
 # 用法：cd hebgwd_vehicle && bash deploy/push-acr.sh
-# 变量见 .env.acr.example；也可在命令前 export 后执行。
+# 变量见 deploy/.env.acr.example；也可在命令前 export 后执行。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-if [[ -f "${ROOT}/.env.acr" ]]; then
+if [[ -f "${ROOT}/deploy/.env.acr" ]]; then
   set -a
   # shellcheck disable=SC1091
-  source "${ROOT}/.env.acr"
+  source "${ROOT}/deploy/.env.acr"
   set +a
 fi
 
@@ -18,7 +18,13 @@ ACR_REGISTRY="${ACR_REGISTRY:-registry.cn-beijing.aliyuncs.com}"
 ACR_NAMESPACE="${ACR_NAMESPACE:-hebgwd}"
 FRONTEND_REPO="${FRONTEND_REPO:-hebgwd_vehicle_frontend}"
 BACKEND_REPO="${BACKEND_REPO:-hebgwd_vehicle_backend}"
-IMAGE_TAG="${IMAGE_TAG:-latest}"
+DEFAULT_IMAGE_TAG="$(date -u +%Y%m%d-%H%M%S)-$(git rev-parse --short=12 HEAD 2>/dev/null || echo local)"
+IMAGE_TAG="${IMAGE_TAG:-${DEFAULT_IMAGE_TAG}}"
+
+if [[ "${IMAGE_TAG}" == "latest" ]]; then
+  echo "错误：生产镜像禁止使用可变的 latest 标签，请使用提交哈希或时间戳标签。" >&2
+  exit 1
+fi
 
 FRONTEND_IMAGE="${ACR_REGISTRY}/${ACR_NAMESPACE}/${FRONTEND_REPO}:${IMAGE_TAG}"
 BACKEND_IMAGE="${ACR_REGISTRY}/${ACR_NAMESPACE}/${BACKEND_REPO}:${IMAGE_TAG}"
@@ -32,7 +38,14 @@ if [[ -z "${VITE_API_BASE_URL:-}" ]]; then
   echo "错误：未设置 VITE_API_BASE_URL。" >&2
   echo "前端打包会把接口根地址写进静态文件，请设为线上后端地址（无末尾 /），例如：" >&2
   echo "  export VITE_API_BASE_URL=https://你的后端域名" >&2
-  echo "或在 ${ROOT}/.env.acr 中填写后重新执行。" >&2
+  echo "或在 ${ROOT}/deploy/.env.acr 中填写后重新执行。" >&2
+  exit 1
+fi
+
+if [[ -z "${VITE_AMAP_KEY:-}" || -z "${VITE_AMAP_SECURITY_JSCODE:-}" ]]; then
+  echo "错误：未设置 VITE_AMAP_KEY 或 VITE_AMAP_SECURITY_JSCODE。" >&2
+  echo "高德 JS API 2.0 的 Web 端 Key 和对应安全密钥必须在前端构建时同时写入。" >&2
+  echo "请复制 deploy/.env.acr.example 为 deploy/.env.acr，填写两项后重新构建。" >&2
   exit 1
 fi
 
@@ -42,8 +55,8 @@ docker build -t "${BACKEND_IMAGE}" "${ROOT}/backend"
 echo ">>> 构建前端: ${FRONTEND_IMAGE}"
 docker build -t "${FRONTEND_IMAGE}" \
   --build-arg "VITE_API_BASE_URL=${VITE_API_BASE_URL}" \
-  --build-arg "VITE_AMAP_KEY=${VITE_AMAP_KEY:-}" \
-  --build-arg "VITE_AMAP_SECURITY_JSCODE=${VITE_AMAP_SECURITY_JSCODE:-}" \
+  --build-arg "VITE_AMAP_KEY=${VITE_AMAP_KEY}" \
+  --build-arg "VITE_AMAP_SECURITY_JSCODE=${VITE_AMAP_SECURITY_JSCODE}" \
   "${ROOT}/frontend"
 
 echo ">>> 登录 ACR（用户名一般为阿里云主账号或 RAM 子账号全名；密码在控制台「访问凭证」或子账号密码）"

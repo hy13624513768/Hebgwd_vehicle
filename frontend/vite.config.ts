@@ -32,8 +32,9 @@ export default defineConfig(({ mode }) => {
             },
           }
         : {}),
-      // 花生壳 / DevBox / Sealos 公网：放行 Host，避免 “Blocked request … host is not allowed”
-      allowedHosts: ['.vicp.fun', '1023700ehma00.vicp.fun', 'devbox.ns-1ht608x0', '.sealosbja.site', 'fhlkzwzoizzu.sealosbja.site'],
+      // Cloudflare Tunnel / 花生壳 / DevBox / Sealos 公网：放行 Host，避免 “Blocked request … host is not allowed”
+      allowedHosts: ['.trycloudflare.com', '.vicp.fun', '1023700ehma00.vicp.fun', 'devbox.ns-1ht608x0', '.sealosbja.site', 'fhlkzwzoizzu.sealosbja.site',
+'hebgwd-vehicle.top',],
       proxy: {
         '/api': {
           target: 'http://127.0.0.1:8000',

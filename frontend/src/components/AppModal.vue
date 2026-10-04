@@ -1,18 +1,20 @@
 <template>
-  <div v-if="open" class="mask" @click.self="emit('close')">
-    <div class="panel" role="dialog" aria-modal="true">
-      <div class="hd">
-        <div class="ttl">{{ title }}</div>
-        <button type="button" class="x" @click="emit('close')">×</button>
-      </div>
-      <div class="bd">
-        <slot />
-      </div>
-      <div class="ft">
-        <slot name="footer" />
+  <Teleport to="body">
+    <div v-if="open" class="mask" @click.self="emit('close')">
+      <div class="panel" role="dialog" aria-modal="true" :aria-label="title">
+        <div class="hd">
+          <div class="ttl">{{ title }}</div>
+          <button type="button" class="x" aria-label="关闭弹窗" @click="emit('close')">×</button>
+        </div>
+        <div class="bd">
+          <slot />
+        </div>
+        <div v-if="$slots.footer" class="ft">
+          <slot name="footer" />
+        </div>
       </div>
     </div>
-  </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -33,10 +35,12 @@ const emit = defineEmits<{ (e: 'close'): void }>()
   z-index: 220;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
 }
 
 .panel {
   width: min(720px, 100%);
+  min-width: 0;
   max-height: min(88dvh, calc(100dvh - 2 * max(12px, env(safe-area-inset-top, 0px))));
   display: flex;
   flex-direction: column;
@@ -46,6 +50,8 @@ const emit = defineEmits<{ (e: 'close'): void }>()
   background: var(--cl-ivory);
   color: var(--cl-near-black);
   box-shadow: rgba(0, 0, 0, 0.08) 0px 8px 32px;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .hd {
@@ -92,6 +98,9 @@ const emit = defineEmits<{ (e: 'close'): void }>()
   overflow-y: auto;
   flex: 1;
   min-height: 0;
+  min-width: 0;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .ft {
@@ -107,18 +116,39 @@ const emit = defineEmits<{ (e: 'close'): void }>()
 @media (max-width: 560px) {
   .mask {
     align-items: flex-end;
+    padding: 0;
     padding-bottom: 0;
   }
 
   .panel {
     width: 100%;
-    max-height: min(92dvh, 100dvh);
+    max-width: none;
+    max-height: 100dvh;
     border-radius: 16px 16px 0 0;
     margin: 0;
   }
 
   .hd {
-    padding-top: max(14px, env(safe-area-inset-top, 0px));
+    flex: 0 0 auto;
+    padding: max(12px, env(safe-area-inset-top, 0px)) 10px 8px 14px;
+    background: var(--cl-ivory);
+  }
+
+  .bd {
+    padding: 12px;
+  }
+
+  .ft {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    padding: 10px 12px max(10px, env(safe-area-inset-bottom, 0px));
+    background: var(--cl-ivory);
+  }
+
+  .ft :slotted(button) {
+    width: 100%;
+    min-height: 44px;
+    margin: 0;
   }
 }
 </style>

@@ -37,12 +37,15 @@ export type Driver = {
   health_check_report: string | null
   outsourcing_onboarding: string | null
   first_hire_date: string | null
+  has_health_check_report: boolean
+  has_outsourcing_onboarding: boolean
   workshop_id: number | null
   workshop_name: string | null
   user_id: number | null
   created_by: number | null
   created_at: string
   updated_at: string
+  is_restricted?: boolean
 }
 
 export type TripRequest = {
@@ -91,7 +94,7 @@ export type DashboardSummary = {
       total_liters: number
       total_amount: number
       total_mileage: number
-      avg_l_per_100km: number
+      avg_l_per_100km: number | null
       records: number
       valid_segments: number
       invalid_segments: number
@@ -101,7 +104,7 @@ export type DashboardSummary = {
       total_liters: number
       total_amount: number
       total_mileage: number
-      avg_l_per_100km: number
+      avg_l_per_100km: number | null
       records: number
     }>
     monthly: Array<{
@@ -110,7 +113,7 @@ export type DashboardSummary = {
       total_liters: number
       total_amount: number
       total_mileage: number
-      avg_l_per_100km: number
+      avg_l_per_100km: number | null
     }>
     quarterly: Array<{
       year: number
@@ -118,16 +121,16 @@ export type DashboardSummary = {
       total_liters: number
       total_amount: number
       total_mileage: number
-      avg_l_per_100km: number
+      avg_l_per_100km: number | null
     }>
     vehicles: Array<{
       year: number
-      vehicle_id: number
+      vehicle_id: number | null
       plate_number: string
       total_liters: number
       total_amount: number
       total_mileage: number
-      avg_l_per_100km: number
+      avg_l_per_100km: number | null
       records: number
     }>
   }

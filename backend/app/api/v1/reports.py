@@ -10,8 +10,9 @@ from sqlalchemy import func, select
 
 from app.core.deps import DbSession
 from app.core.rbac import ExporterUser
+from app.core.data_scope import scoped, require_global_management
 from app.models.driver import Driver
-from app.models.fuel import FuelCard, FuelRecord
+from app.models.fuel import FuelBalance, FuelCard, FuelRecord
 from app.models.maintenance import MaintenanceRecord
 from app.models.trip_request import TripRequest
 from app.models.vehicle import Vehicle
@@ -39,8 +40,8 @@ def _attachment(name: str, data: bytes) -> StreamingResponse:
 
 
 @router.get("/export/vehicles.csv")
-def export_vehicles(db: DbSession, _: ExporterUser) -> StreamingResponse:
-    rows_db = db.scalars(select(Vehicle).order_by(Vehicle.id)).all()
+def export_vehicles(db: DbSession, current: ExporterUser) -> StreamingResponse:
+    rows_db = db.scalars(scoped(select(Vehicle), Vehicle, current).order_by(Vehicle.id)).all()
     header = ["id", "plate_number", "brand", "model", "vin", "color", "seats", "mileage", "status", "remarks"]
     rows = [
         [
@@ -61,8 +62,8 @@ def export_vehicles(db: DbSession, _: ExporterUser) -> StreamingResponse:
 
 
 @router.get("/export/drivers.csv")
-def export_drivers(db: DbSession, _: ExporterUser) -> StreamingResponse:
-    rows_db = db.scalars(select(Driver).order_by(Driver.sort_no.asc().nulls_last(), Driver.id.asc())).all()
+def export_drivers(db: DbSession, current: ExporterUser) -> StreamingResponse:
+    rows_db = db.scalars(scoped(select(Driver), Driver, current).order_by(Driver.sort_no.asc().nulls_last(), Driver.id.asc())).all()
     header = [
         "id",
         "sort_no",
@@ -101,8 +102,8 @@ def export_drivers(db: DbSession, _: ExporterUser) -> StreamingResponse:
 
 
 @router.get("/export/trip-requests.csv")
-def export_trips(db: DbSession, _: ExporterUser) -> StreamingResponse:
-    rows_db = db.scalars(select(TripRequest).order_by(TripRequest.id)).all()
+def export_trips(db: DbSession, current: ExporterUser) -> StreamingResponse:
+    rows_db = db.scalars(scoped(select(TripRequest), TripRequest, current).order_by(TripRequest.id)).all()
     header = [
         "id",
         "purpose",
@@ -140,8 +141,8 @@ def export_trips(db: DbSession, _: ExporterUser) -> StreamingResponse:
 
 
 @router.get("/export/maintenance.csv")
-def export_maintenance(db: DbSession, _: ExporterUser) -> StreamingResponse:
-    rows_db = db.scalars(select(MaintenanceRecord).order_by(MaintenanceRecord.id)).all()
+def export_maintenance(db: DbSession, current: ExporterUser) -> StreamingResponse:
+    rows_db = db.scalars(scoped(select(MaintenanceRecord), MaintenanceRecord, current).order_by(MaintenanceRecord.id)).all()
     header = ["id", "vehicle_id", "service_date", "category", "amount", "mileage", "vendor", "description"]
     rows = [
         [
@@ -160,7 +161,8 @@ def export_maintenance(db: DbSession, _: ExporterUser) -> StreamingResponse:
 
 
 @router.get("/export/fuel-cards.csv")
-def export_fuel_cards(db: DbSession, _: ExporterUser) -> StreamingResponse:
+def export_fuel_cards(db: DbSession, current: ExporterUser) -> StreamingResponse:
+    require_global_management(current)
     rows_db = db.scalars(select(FuelCard).order_by(FuelCard.id)).all()
     header = ["id", "card_no", "col_c", "col_d"]
     rows = [[c.id, c.card_no, c.col_c, c.col_d] for c in rows_db]
@@ -168,8 +170,8 @@ def export_fuel_cards(db: DbSession, _: ExporterUser) -> StreamingResponse:
 
 
 @router.get("/export/fuel-records.csv")
-def export_fuel_records(db: DbSession, _: ExporterUser) -> StreamingResponse:
-    rows_db = db.scalars(select(FuelRecord).order_by(FuelRecord.id)).all()
+def export_fuel_records(db: DbSession, current: ExporterUser) -> StreamingResponse:
+    rows_db = db.scalars(scoped(select(FuelRecord), FuelRecord, current).order_by(FuelRecord.id)).all()
     header = [
         "id",
         "card_asn",
@@ -201,15 +203,15 @@ def export_fuel_records(db: DbSession, _: ExporterUser) -> StreamingResponse:
 
 
 @router.get("/export/summary.csv")
-def export_summary(db: DbSession, _: ExporterUser) -> StreamingResponse:
+def export_summary(db: DbSession, current: ExporterUser) -> StreamingResponse:
     """一行汇总，便于领导快速浏览。"""
     now = datetime.now().isoformat(timespec="seconds")
-    v = int(db.scalar(select(func.count()).select_from(Vehicle)) or 0)
-    d = int(db.scalar(select(func.count()).select_from(Driver)) or 0)
-    t = int(db.scalar(select(func.count()).select_from(TripRequest)) or 0)
-    m = int(db.scalar(select(func.count()).select_from(MaintenanceRecord)) or 0)
-    fc = int(db.scalar(select(func.count()).select_from(FuelCard)) or 0)
-    fr = int(db.scalar(select(func.count()).select_from(FuelRecord)) or 0)
+    v = int(db.scalar(scoped(select(func.count()).select_from(Vehicle), Vehicle, current)) or 0)
+    d = int(db.scalar(scoped(select(func.count()).select_from(Driver), Driver, current)) or 0)
+    t = int(db.scalar(scoped(select(func.count()).select_from(TripRequest), TripRequest, current)) or 0)
+    m = int(db.scalar(scoped(select(func.count()).select_from(MaintenanceRecord), MaintenanceRecord, current)) or 0)
+    fc = int(db.scalar(scoped(select(func.count()).select_from(FuelBalance), FuelBalance, current)) or 0)
+    fr = int(db.scalar(scoped(select(func.count()).select_from(FuelRecord), FuelRecord, current)) or 0)
     header = ["exported_at", "vehicles", "drivers", "trips", "maintenance", "fuel_cards", "fuel_records"]
     rows = [[now, v, d, t, m, fc, fr]]
     return _attachment("summary.csv", _csv_bytes(rows, header))

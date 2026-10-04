@@ -6,6 +6,7 @@ export type UserAdmin = {
   display_name: string
   role: string
   is_active: boolean
+  workshop_id: number | null
 }
 
 export type RoleDefinition = {

@@ -1,304 +1,137 @@
-"""轻量级运行时迁移：在无法使用 Alembic 的环境里补齐历史表结构。"""
+"""启动仅执行可重入的加列迁移；不删除旧数据、不改写角色或业务归属。
 
+旧字段转换和历史清理应在备份后通过单独的数据迁移流程执行。
+"""
 from sqlalchemy import inspect, text
-from sqlalchemy.exc import ProgrammingError
-
 from app.db.session import engine
+from app.db.structure import SCHEMA_TABLES, TABLE_SCHEMAS
+
+# 旧版表名 -> 统一后的业务表名。重命名会保留原表数据、序列、索引和外键关系。
+TABLE_RENAMES = {
+    "sys_user": "users",
+    "bus_workshop": "workshops",
+    "bus_vehicle": "vehicles",
+    "bus_driver": "drivers",
+    "bus_trip_request": "trip_requests",
+    "bus_maintenance": "maintenance_records",
+    "bus_maintenance_term": "maintenance_terms",
+    "bus_fuel_card": "fuel_cards",
+    "bus_fuel_card_lookup": "fuel_card_lookups",
+    "bus_fuel_record": "fuel_records",
+    "bus_fuel_balance": "fuel_balances",
+    "bus_fuel_sync_log": "fuel_sync_logs",
+    "bus_nav_preset": "nav_presets",
+    "bus_nav_preset_op_log": "nav_preset_operation_logs",
+    "bus_repair_record": "repair_records",
+    "bus_repair_settlement": "repair_settlements",
+    "bus_repair_settlement_line": "repair_settlement_lines",
+}
+
+# 固定标识符，禁止接受外部输入作为 DDL。
+ADDITIONS = {
+    "users": {"role": "VARCHAR(32) NOT NULL DEFAULT 'staff'", "workshop_id": "INTEGER NULL REFERENCES workshops(id)"},
+    "drivers": {
+        "user_id": "INTEGER NULL REFERENCES users(id)", "workshop_id": "INTEGER NULL REFERENCES workshops(id)",
+        "sort_no": "INTEGER NULL", "id_card": "VARCHAR(32) NULL", "health_check_report": "TEXT NULL",
+        "outsourcing_onboarding": "TEXT NULL", "first_hire_date": "DATE NULL",
+        "vehicle_type_label": "VARCHAR(64) NOT NULL DEFAULT ''",
+    },
+    "vehicles": {
+        "org_unit": "VARCHAR(128) NOT NULL DEFAULT ''", "workshop_id": "INTEGER NULL REFERENCES workshops(id)",
+        "vehicle_class": "VARCHAR(64) NOT NULL DEFAULT ''", "vehicle_type_label": "VARCHAR(64) NOT NULL DEFAULT ''",
+        "history_plate": "VARCHAR(32) NOT NULL DEFAULT ''", "engine_no": "VARCHAR(64) NOT NULL DEFAULT ''",
+        "emission_std": "VARCHAR(32) NOT NULL DEFAULT ''", "displacement": "VARCHAR(32) NOT NULL DEFAULT ''",
+        "purchase_amount": "NUMERIC(14,2) NULL", "registered_at": "TIMESTAMP WITH TIME ZONE NULL",
+    },
+    "fuel_cards": {"col_c": "VARCHAR(256) NOT NULL DEFAULT ''", "col_d": "VARCHAR(256) NOT NULL DEFAULT ''"},
+    "fuel_records": {"workshop": "VARCHAR(128) NOT NULL DEFAULT ''", "workshop_id": "INTEGER NULL REFERENCES workshops(id)"},
+    "fuel_balances": {"workshop_id": "INTEGER NULL REFERENCES workshops(id)"},
+    "trip_requests": {"workshop_id": "INTEGER NULL REFERENCES workshops(id)"},
+    "nav_presets": {"is_locked": "BOOLEAN NOT NULL DEFAULT true"},
+}
+
+INDEXES = {
+    "fuel_records": {
+        "ix_fuel_records_occur_time": ("occur_time",),
+        "ix_fuel_records_workshop_occur_time": ("workshop_id", "occur_time"),
+    },
+    "trip_requests": {
+        "ix_trip_requests_workshop_status_id": ("workshop_id", "status", "id"),
+        "ix_trip_requests_created_by_status": ("created_by", "status"),
+        "ix_trip_requests_driver_id": ("driver_id",),
+    },
+}
+
+
+def run_pre_create_migrations() -> None:
+    """在 ORM 建表前统一旧表名，并将 PostgreSQL 表归入业务 schema。"""
+    with engine.begin() as conn:
+        if conn.dialect.name == "postgresql":
+            conn.execute(text("SELECT pg_advisory_xact_lock(82473101)"))
+            _organize_postgresql_tables(conn)
+            return
+        existing = set(inspect(conn).get_table_names())
+        for old_name, new_name in TABLE_RENAMES.items():
+            if old_name not in existing:
+                continue
+            if new_name in existing:
+                raise RuntimeError(f"无法迁移表名：{old_name} 与 {new_name} 同时存在")
+            conn.execute(text(f'ALTER TABLE "{old_name}" RENAME TO "{new_name}"'))
+            existing.remove(old_name)
+            existing.add(new_name)
+
+
+def _organize_postgresql_tables(conn) -> None:
+    for schema in SCHEMA_TABLES:
+        conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
+
+    inspector = inspect(conn)
+    public_tables = set(inspector.get_table_names(schema="public"))
+    for old_name, new_name in TABLE_RENAMES.items():
+        if old_name not in public_tables:
+            continue
+        if new_name in public_tables:
+            raise RuntimeError(f"无法迁移表名：{old_name} 与 {new_name} 同时存在")
+        conn.execute(text(f'ALTER TABLE "public"."{old_name}" RENAME TO "{new_name}"'))
+        public_tables.remove(old_name)
+        public_tables.add(new_name)
+
+    for table, target_schema in TABLE_SCHEMAS.items():
+        in_public = table in public_tables
+        in_target = inspect(conn).has_table(table, schema=target_schema)
+        if in_public and in_target:
+            raise RuntimeError(f"无法归类表：public.{table} 与 {target_schema}.{table} 同时存在")
+        if in_public:
+            conn.execute(text(f'ALTER TABLE "public"."{table}" SET SCHEMA "{target_schema}"'))
+            public_tables.remove(table)
 
 
 def run_runtime_migrations() -> None:
-    insp = inspect(engine)
-
-    if insp.has_table("bus_expense"):
-        with engine.begin() as conn:
-            try:
-                conn.execute(text("DROP TABLE IF EXISTS bus_expense CASCADE"))
-            except ProgrammingError:
-                pass
-        insp = inspect(engine)
-
-    if insp.has_table("sys_user"):
-        cols = {c["name"] for c in insp.get_columns("sys_user")}
-        if "role" not in cols:
-            with engine.begin() as conn:
-                conn.execute(
-                    text("ALTER TABLE sys_user ADD COLUMN role VARCHAR(32) NOT NULL DEFAULT 'vehicle_driver'")
-                )
-
-    if insp.has_table("bus_driver"):
-        cols = {c["name"] for c in insp.get_columns("bus_driver")}
-        if "user_id" not in cols:
-            with engine.begin() as conn:
-                conn.execute(text("ALTER TABLE bus_driver ADD COLUMN user_id INTEGER"))
-
-        insp = inspect(engine)
-        fk_names = {fk.get("name") for fk in insp.get_foreign_keys("bus_driver")}
-        if "bus_driver_user_id_fkey" not in fk_names:
-            try:
-                with engine.begin() as conn:
-                    conn.execute(
-                        text(
-                            "ALTER TABLE bus_driver ADD CONSTRAINT bus_driver_user_id_fkey "
-                            "FOREIGN KEY (user_id) REFERENCES sys_user (id)"
-                        )
-                    )
-            except ProgrammingError:
-                pass
-
-        try:
-            with engine.begin() as conn:
-                conn.execute(
-                    text(
-                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_bus_driver_user_id "
-                        "ON bus_driver (user_id) WHERE user_id IS NOT NULL"
-                    )
-                )
-        except ProgrammingError:
-            pass
-
-        # 与《驾驶员数据库表》Excel 列对齐：新增字段、迁移旧列数据后删除废弃列
-        insp = inspect(engine)
-        cols = {c["name"] for c in insp.get_columns("bus_driver")}
-        driver_adds: list[str] = []
-        if "sort_no" not in cols:
-            driver_adds.append("ALTER TABLE bus_driver ADD COLUMN sort_no INTEGER NULL")
-        if "id_card" not in cols:
-            driver_adds.append("ALTER TABLE bus_driver ADD COLUMN id_card VARCHAR(32) NULL")
-        if "health_check_report" not in cols:
-            driver_adds.append("ALTER TABLE bus_driver ADD COLUMN health_check_report TEXT NULL")
-        if "outsourcing_onboarding" not in cols:
-            driver_adds.append("ALTER TABLE bus_driver ADD COLUMN outsourcing_onboarding TEXT NULL")
-        if "first_hire_date" not in cols:
-            driver_adds.append("ALTER TABLE bus_driver ADD COLUMN first_hire_date DATE NULL")
-        if "vehicle_type_label" not in cols:
-            driver_adds.append(
-                "ALTER TABLE bus_driver ADD COLUMN vehicle_type_label VARCHAR(64) NOT NULL DEFAULT ''"
-            )
-        if driver_adds:
-            with engine.begin() as conn:
-                for stmt in driver_adds:
-                    try:
-                        conn.execute(text(stmt))
-                    except ProgrammingError:
-                        pass
-
-        insp = inspect(engine)
-        cols = {c["name"] for c in insp.get_columns("bus_driver")}
-        with engine.begin() as conn:
-            if "license_number" in cols and "id_card" in cols:
-                try:
-                    conn.execute(
-                        text(
-                            "UPDATE bus_driver SET id_card = license_number "
-                            "WHERE (id_card IS NULL OR id_card = '') AND license_number IS NOT NULL"
-                        )
-                    )
-                except ProgrammingError:
-                    pass
-            if "hire_date" in cols and "first_hire_date" in cols:
-                try:
-                    conn.execute(
-                        text(
-                            "UPDATE bus_driver SET first_hire_date = hire_date "
-                            "WHERE first_hire_date IS NULL AND hire_date IS NOT NULL"
-                        )
-                    )
-                except ProgrammingError:
-                    pass
-
-        insp = inspect(engine)
-        cols = {c["name"] for c in insp.get_columns("bus_driver")}
-        driver_drops: list[str] = []
-        for obsolete in ("license_number", "hire_date", "remarks"):
-            if obsolete in cols:
-                driver_drops.append(f"ALTER TABLE bus_driver DROP COLUMN IF EXISTS {obsolete}")
-        if driver_drops:
-            with engine.begin() as conn:
-                for stmt in driver_drops:
-                    try:
-                        conn.execute(text(stmt))
-                    except ProgrammingError:
-                        pass
-
-    if insp.has_table("bus_vehicle"):
-        cols = {c["name"] for c in insp.get_columns("bus_vehicle")}
-        alters: list[str] = []
-        if "org_unit" not in cols:
-            alters.append("ALTER TABLE bus_vehicle ADD COLUMN org_unit VARCHAR(128) NOT NULL DEFAULT ''")
-        if "vehicle_class" not in cols:
-            alters.append("ALTER TABLE bus_vehicle ADD COLUMN vehicle_class VARCHAR(64) NOT NULL DEFAULT ''")
-        if "vehicle_type_label" not in cols:
-            alters.append("ALTER TABLE bus_vehicle ADD COLUMN vehicle_type_label VARCHAR(64) NOT NULL DEFAULT ''")
-        if "history_plate" not in cols:
-            alters.append("ALTER TABLE bus_vehicle ADD COLUMN history_plate VARCHAR(32) NOT NULL DEFAULT ''")
-        if "engine_no" not in cols:
-            alters.append("ALTER TABLE bus_vehicle ADD COLUMN engine_no VARCHAR(64) NOT NULL DEFAULT ''")
-        if "emission_std" not in cols:
-            alters.append("ALTER TABLE bus_vehicle ADD COLUMN emission_std VARCHAR(32) NOT NULL DEFAULT ''")
-        if "displacement" not in cols:
-            alters.append("ALTER TABLE bus_vehicle ADD COLUMN displacement VARCHAR(32) NOT NULL DEFAULT ''")
-        if "purchase_amount" not in cols:
-            alters.append("ALTER TABLE bus_vehicle ADD COLUMN purchase_amount NUMERIC(14, 2) NULL")
-        if "registered_at" not in cols:
-            alters.append("ALTER TABLE bus_vehicle ADD COLUMN registered_at TIMESTAMP WITH TIME ZONE NULL")
-        if alters:
-            with engine.begin() as conn:
-                for stmt in alters:
-                    try:
-                        conn.execute(text(stmt))
-                    except ProgrammingError:
-                        pass
-
-    if insp.has_table("bus_fuel_card"):
-        cols = {c["name"] for c in insp.get_columns("bus_fuel_card")}
-        with engine.begin() as conn:
-            # 将旧字段平滑迁移为 Excel B/C/D 语义，尽量保留历史数据。
-            if "col_c" not in cols:
-                if "issuer" in cols:
-                    try:
-                        conn.execute(text("ALTER TABLE bus_fuel_card RENAME COLUMN issuer TO col_c"))
-                    except ProgrammingError:
-                        pass
-                else:
-                    try:
-                        conn.execute(
-                            text("ALTER TABLE bus_fuel_card ADD COLUMN col_c VARCHAR(256) NOT NULL DEFAULT ''")
-                        )
-                    except ProgrammingError:
-                        pass
-            if "col_d" not in cols:
-                if "holder_name" in cols:
-                    try:
-                        conn.execute(text("ALTER TABLE bus_fuel_card RENAME COLUMN holder_name TO col_d"))
-                    except ProgrammingError:
-                        pass
-                else:
-                    try:
-                        conn.execute(
-                            text("ALTER TABLE bus_fuel_card ADD COLUMN col_d VARCHAR(256) NOT NULL DEFAULT ''")
-                        )
-                    except ProgrammingError:
-                        pass
-            for obsolete in ("balance", "status", "remarks", "created_by"):
-                if obsolete in cols:
-                    try:
-                        conn.execute(text(f"ALTER TABLE bus_fuel_card DROP COLUMN IF EXISTS {obsolete}"))
-                    except ProgrammingError:
-                        pass
-
-    if insp.has_table("bus_fuel_card_number"):
-        with engine.begin() as conn:
-            try:
-                conn.execute(text("DROP TABLE IF EXISTS bus_fuel_card_number"))
-            except ProgrammingError:
-                pass
-
-    if insp.has_table("bus_fuel_record"):
-        cols = {c["name"] for c in insp.get_columns("bus_fuel_record")}
-        if "workshop" not in cols:
-            with engine.begin() as conn:
-                try:
-                    conn.execute(text("ALTER TABLE bus_fuel_record ADD COLUMN workshop VARCHAR(128) NOT NULL DEFAULT ''"))
-                except ProgrammingError:
-                    pass
-        # 旧库 occur_time 为 TEXT，无法按日期筛选；统一迁移为 TIMESTAMPTZ
-        with engine.connect() as conn:
-            row = conn.execute(
-                text(
-                    """
-                    SELECT data_type
-                    FROM information_schema.columns
-                    WHERE table_schema = current_schema()
-                      AND table_name = 'bus_fuel_record'
-                      AND column_name = 'occur_time'
-                    """
-                )
-            ).first()
-        if row and str(row[0]).lower() in {"text", "character varying"}:
-            with engine.begin() as conn:
-                try:
-                    conn.execute(
-                        text(
-                            """
-                            ALTER TABLE bus_fuel_record
-                            ALTER COLUMN occur_time TYPE TIMESTAMPTZ
-                            USING (
-                                CASE
-                                    WHEN occur_time IS NULL OR trim(occur_time::text) = '' THEN NOW()
-                                    ELSE occur_time::timestamptz
-                                END
-                            )
-                            """
-                        )
-                    )
-                except ProgrammingError:
-                    pass
-
-    if insp.has_table("bus_nav_preset"):
-        cols = {c["name"] for c in insp.get_columns("bus_nav_preset")}
-        if "is_locked" not in cols:
-            with engine.begin() as conn:
-                try:
-                    conn.execute(
-                        text(
-                            "ALTER TABLE bus_nav_preset ADD COLUMN is_locked BOOLEAN NOT NULL DEFAULT true"
-                        )
-                    )
-                except ProgrammingError:
-                    pass
-
-    if insp.has_table("sys_user"):
-        with engine.begin() as conn:
-            # 分级角色迁移：内置 admin 固定为超级管理员
-            conn.execute(text("UPDATE sys_user SET role = 'super_admin' WHERE username = 'admin'"))
-            conn.execute(text("UPDATE sys_user SET role = 'super_admin' WHERE role = 'admin'"))
-            conn.execute(text("UPDATE sys_user SET role = 'section_admin' WHERE role = 'fleet_manager'"))
-            conn.execute(text("UPDATE sys_user SET role = 'vehicle_driver' WHERE role = 'driver'"))
-            conn.execute(text("UPDATE sys_user SET role = 'vehicle_driver' WHERE role = 'staff'"))
-
-    _migrate_workshop_master(insp)
-
-
-def _migrate_workshop_master(insp) -> None:
-    """车间主表 bus_workshop 及 workshop_id 外键列（兼容旧库）。"""
-    tables_fk: list[tuple[str, str]] = [
-        ("sys_user", "sys_user_workshop_id_fkey"),
-        ("bus_driver", "bus_driver_workshop_id_fkey"),
-        ("bus_vehicle", "bus_vehicle_workshop_id_fkey"),
-        ("bus_fuel_record", "bus_fuel_record_workshop_id_fkey"),
-        ("bus_fuel_balance", "bus_fuel_balance_workshop_id_fkey"),
-        ("bus_trip_request", "bus_trip_request_workshop_id_fkey"),
-    ]
-    for table, _ in tables_fk:
-        if not insp.has_table(table):
-            continue
-        cols = {c["name"] for c in insp.get_columns(table)}
-        if "workshop_id" not in cols:
-            with engine.begin() as conn:
-                try:
-                    conn.execute(
-                        text(f"ALTER TABLE {table} ADD COLUMN workshop_id INTEGER NULL")
-                    )
-                except ProgrammingError:
-                    pass
-        insp = inspect(engine)
-        fk_names = {fk.get("name") for fk in insp.get_foreign_keys(table)}
-        cname = f"{table}_workshop_id_fkey"
-        if cname not in fk_names and insp.has_table("bus_workshop"):
-            try:
-                with engine.begin() as conn:
-                    conn.execute(
-                        text(
-                            f"ALTER TABLE {table} ADD CONSTRAINT {cname} "
-                            "FOREIGN KEY (workshop_id) REFERENCES bus_workshop (id)"
-                        )
-                    )
-            except ProgrammingError:
-                pass
-        try:
-            with engine.begin() as conn:
-                conn.execute(
-                    text(f"CREATE INDEX IF NOT EXISTS ix_{table}_workshop_id ON {table} (workshop_id)")
-                )
-        except ProgrammingError:
-            pass
+    with engine.begin() as conn:
+        if conn.dialect.name == "postgresql":
+            conn.execute(text("SELECT pg_advisory_xact_lock(82473101)"))
+            _organize_postgresql_tables(conn)
+        inspector = inspect(conn)
+        for table, additions in ADDITIONS.items():
+            schema = TABLE_SCHEMAS.get(table) if conn.dialect.name == "postgresql" else None
+            if not inspector.has_table(table, schema=schema):
+                continue
+            columns = {c["name"] for c in inspector.get_columns(table, schema=schema)}
+            qualified_table = f'"{schema}"."{table}"' if schema else f'"{table}"'
+            for name, definition in additions.items():
+                if name not in columns:
+                    conn.execute(text(f'ALTER TABLE {qualified_table} ADD COLUMN "{name}" {definition}'))
+            if "workshop_id" in additions:
+                conn.execute(text(f'CREATE INDEX IF NOT EXISTS "ix_{table}_workshop_id" ON {qualified_table} (workshop_id)'))
+        driver_schema = TABLE_SCHEMAS.get("drivers") if conn.dialect.name == "postgresql" else None
+        if inspector.has_table("drivers", schema=driver_schema):
+            drivers = f'"{driver_schema}"."drivers"' if driver_schema else '"drivers"'
+            conn.execute(text(f'CREATE UNIQUE INDEX IF NOT EXISTS "uq_drivers_user_id" ON {drivers} (user_id) WHERE user_id IS NOT NULL'))
+        for table, indexes in INDEXES.items():
+            schema = TABLE_SCHEMAS.get(table) if conn.dialect.name == "postgresql" else None
+            if not inspector.has_table(table, schema=schema):
+                continue
+            qualified_table = f'"{schema}"."{table}"' if schema else f'"{table}"'
+            for index_name, columns in indexes.items():
+                column_sql = ", ".join(f'"{column}"' for column in columns)
+                conn.execute(text(f'CREATE INDEX IF NOT EXISTS "{index_name}" ON {qualified_table} ({column_sql})'))

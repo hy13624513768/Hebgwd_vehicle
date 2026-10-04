@@ -1,4 +1,4 @@
-"""导出 public.bus_vehicle 的列信息与全表数据（CSV），供本地查看。
+"""导出 fleet_management.vehicles 的列信息与全表数据（CSV），供本地查看。
 
 用法（在 backend 目录）：
   python scripts/export_bus_vehicle.py
@@ -22,6 +22,7 @@ if str(ROOT) not in sys.path:
 from sqlalchemy import create_engine, text  # noqa: E402
 
 from app.core.config import settings  # noqa: E402
+from app.db.structure import POSTGRES_SEARCH_PATH_OPTION  # noqa: E402
 
 
 def _cell(v):
@@ -43,10 +44,13 @@ def main() -> None:
     out_dir: Path = args.out
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    engine = create_engine(settings.database_url)
+    engine = create_engine(
+        settings.database_url,
+        connect_args={"options": f"-csearch_path={POSTGRES_SEARCH_PATH_OPTION}"},
+    )
 
-    schema_path = out_dir / "bus_vehicle_schema.txt"
-    csv_path = out_dir / "bus_vehicle_data.csv"
+    schema_path = out_dir / "vehicles_schema.txt"
+    csv_path = out_dir / "vehicles_data.csv"
 
     with engine.connect() as conn:
         cols = conn.execute(
@@ -55,7 +59,7 @@ def main() -> None:
                 SELECT column_name, data_type, character_maximum_length,
                        is_nullable, column_default
                 FROM information_schema.columns
-                WHERE table_schema = 'public' AND table_name = 'bus_vehicle'
+                WHERE table_schema = 'fleet_management' AND table_name = 'vehicles'
                 ORDER BY ordinal_position
                 """
             )
@@ -64,7 +68,7 @@ def main() -> None:
         lines = [
             f"database_url (masked): {settings.database_url.split('@')[-1] if '@' in settings.database_url else settings.database_url}",
             "",
-            "public.bus_vehicle columns:",
+            "fleet_management.vehicles columns:",
             "column_name | data_type | max_len | nullable | default",
             "-" * 72,
         ]
@@ -75,7 +79,7 @@ def main() -> None:
             )
         schema_path.write_text("\n".join(lines), encoding="utf-8")
 
-        rows = conn.execute(text("SELECT * FROM public.bus_vehicle ORDER BY id")).mappings().all()
+        rows = conn.execute(text("SELECT * FROM fleet_management.vehicles ORDER BY id")).mappings().all()
         if not rows:
             csv_path.write_text("", encoding="utf-8")
             print(f"已写入（无数据行）: {schema_path}\n{csv_path}")

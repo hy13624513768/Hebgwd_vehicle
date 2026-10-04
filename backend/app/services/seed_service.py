@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
 from app.models.driver import Driver
-from app.models.fuel import FuelBalance, FuelCard, FuelRecord
+from app.models.fuel import FuelBalance, FuelCard, FuelCardLookup, FuelRecord
 from app.models.maintenance import MaintenanceRecord
 from app.models.nav_preset import NavPreset
 from app.models.trip_request import TripRequest
@@ -168,6 +168,16 @@ def seed_demo_if_empty(db: Session) -> None:
         )
         did_any = True
 
+    if int(db.scalar(select(func.count()).select_from(FuelCardLookup)) or 0) == 0:
+        db.add(
+            FuelCardLookup(
+                card_no=_DEMO_FUEL_CARD,
+                workshop="演示车间",
+                vehicle_no=first_vehicle.plate_number,
+            )
+        )
+        did_any = True
+
     if int(db.scalar(select(func.count()).select_from(FuelBalance)) or 0) == 0:
         db.add(
             FuelBalance(
@@ -213,10 +223,10 @@ def _ensure_user(
     existing = db.scalar(select(User).where(User.username == username))
     if existing:
         changed = False
-        if existing.role != role:
+        if reset_password and existing.role != role:
             existing.role = role
             changed = True
-        if existing.display_name != display_name:
+        if reset_password and existing.display_name != display_name:
             existing.display_name = display_name
             changed = True
         if reset_password and password:

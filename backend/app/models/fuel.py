@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -10,7 +10,7 @@ from app.db.base import Base
 class FuelCard(Base):
     """油卡档案"""
 
-    __tablename__ = "bus_fuel_card"
+    __tablename__ = "fuel_cards"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     card_no: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
@@ -22,10 +22,29 @@ class FuelCard(Base):
     )
 
 
+class FuelCardLookup(Base):
+    """油卡号与车间、车辆的映射；结构与线上开发库保持一致。"""
+
+    __tablename__ = "fuel_card_lookups"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    card_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    workshop: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+    vehicle_no: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class FuelRecord(Base):
     """加油流水（对接新结构字段）"""
 
-    __tablename__ = "bus_fuel_record"
+    __tablename__ = "fuel_records"
+    __table_args__ = (
+        Index("ix_fuel_records_occur_time", "occur_time"),
+        Index("ix_fuel_records_workshop_occur_time", "workshop_id", "occur_time"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     card_asn: Mapped[str] = mapped_column(String(64), default="", nullable=False)
@@ -37,9 +56,26 @@ class FuelRecord(Base):
     volumn: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0.00"), nullable=False)
     workshop: Mapped[str] = mapped_column(String(128), default="", nullable=False)
     workshop_id: Mapped[int | None] = mapped_column(
-        ForeignKey("bus_workshop.id"), nullable=True, index=True
+        ForeignKey("workshops.id"), nullable=True, index=True
     )
     car_no: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class FuelEntry(Base):
+    """移动端人工登记的加油凭证；与第三方平台同步流水分表保存。"""
+
+    __tablename__ = "fuel_entries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    vehicle_id: Mapped[int] = mapped_column(ForeignKey("vehicles.id"), nullable=False, index=True)
+    odometer: Mapped[int] = mapped_column(Integer, nullable=False)
+    fueled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    photo_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -49,13 +85,13 @@ class FuelRecord(Base):
 class FuelBalance(Base):
     """油卡余额快照（来自 Excel《卡内剩余金额》Sheet1）。"""
 
-    __tablename__ = "bus_fuel_balance"
+    __tablename__ = "fuel_balances"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     card_no: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     workshop: Mapped[str] = mapped_column(String(128), default="", nullable=False)  # 车间
     workshop_id: Mapped[int | None] = mapped_column(
-        ForeignKey("bus_workshop.id"), nullable=True, index=True
+        ForeignKey("workshops.id"), nullable=True, index=True
     )
     vehicle_no: Mapped[str] = mapped_column(String(64), default="", nullable=False)  # 车号
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
@@ -70,9 +106,9 @@ class FuelBalance(Base):
 class FuelSyncLog(Base):
     """油卡余额从中国石油平台同步的记录（用于统计今日刷新次数与上次刷新时间）。"""
 
-    __tablename__ = "bus_fuel_sync_log"
+    __tablename__ = "fuel_sync_logs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id"), nullable=True, index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
     success: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

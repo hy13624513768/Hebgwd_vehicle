@@ -1,5 +1,7 @@
 from datetime import datetime
 
+from app.schemas.patch import PatchModel
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -11,7 +13,9 @@ class WorkshopCreate(BaseModel):
     remarks: str | None = None
 
 
-class WorkshopUpdate(BaseModel):
+class WorkshopUpdate(PatchModel):
+    nullable_fields = {"remarks"}
+
     name: str | None = Field(default=None, min_length=1, max_length=128)
     code: str | None = Field(default=None, max_length=32)
     sort_order: int | None = Field(default=None, ge=0)

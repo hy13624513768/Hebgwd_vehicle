@@ -10,12 +10,12 @@ from app.db.base import Base
 class MaintenanceTerm(Base):
     """维修词条树：一级大类 / 二级子类 / 三级词条（含别名与关键词，供结算单归类）。"""
 
-    __tablename__ = "bus_maintenance_term"
+    __tablename__ = "maintenance_terms"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     parent_id: Mapped[int | None] = mapped_column(
         Integer,
-        ForeignKey("bus_maintenance_term.id", ondelete="RESTRICT"),
+        ForeignKey("maintenance_terms.id", ondelete="RESTRICT"),
         nullable=True,
         index=True,
     )

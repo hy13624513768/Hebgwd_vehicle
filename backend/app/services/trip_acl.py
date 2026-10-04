@@ -14,6 +14,7 @@ from app.models.driver import Driver
 from app.models.trip_request import TripRequest
 from app.models.user import User
 from app.schemas.trip_request import TripRequestUpdate
+from app.core.data_scope import scoped, require_workshop_access
 
 
 def driver_id_for_user(db: Session, user_id: int) -> int | None:
@@ -27,7 +28,7 @@ def _is_driver_channel(role: str) -> bool:
 def trips_query_filtered(db: Session, user: User):
     stmt = select(TripRequest)
     if is_fleet_management(user.role):
-        return stmt
+        return scoped(stmt, TripRequest, user)
     if user.role in (LEGACY_STAFF, "staff"):
         return stmt.where(TripRequest.created_by == user.id)
     if _is_driver_channel(user.role):
@@ -40,6 +41,7 @@ def trips_query_filtered(db: Session, user: User):
 
 def assert_trip_visible(db: Session, user: User, row: TripRequest) -> None:
     if is_fleet_management(user.role):
+        require_workshop_access(user, row.workshop_id)
         return
     if user.role in (LEGACY_STAFF, "staff"):
         if row.created_by != user.id:
@@ -75,6 +77,11 @@ def normalize_trip_update(
         return {k: v for k, v in raw.items() if k in allowed}
 
     if _is_driver_channel(user.role):
+        if row.created_by == user.id and row.status == "pending":
+            allowed = {"purpose", "applicant_name", "start_at", "end_at", "origin", "destination", "passenger_count", "notes"}
+            if set(raw) - allowed:
+                raise HTTPException(403, "申请人不能自行审批或派车")
+            return raw
         did = driver_id_for_user(db, user.id)
         if not did or row.driver_id != did:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅指派给本人的任务可办理")
