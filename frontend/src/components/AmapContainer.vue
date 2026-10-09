@@ -302,6 +302,21 @@ VITE_AMAP_SECURITY_JSCODE=对应安全密钥</pre>
     </div>
     </template>
 
+    <AppModal :open="harmonyNavOpen" title="打开高德导航" @close="closeHarmonyNavigation">
+      <p>目的地：{{ harmonyNavTarget.name }}</p>
+      <p v-if="harmonyNavLoading" role="status">正在获取当前位置，请允许浏览器定位…</p>
+      <p v-else-if="harmonyNavError" role="alert">{{ harmonyNavError }}</p>
+      <p v-else>路线已准备好，点击下方按钮打开高德地图。</p>
+      <p v-if="harmonyLaunchHint" role="status">{{ harmonyLaunchHint }}</p>
+      <template #footer>
+        <a v-if="harmonyNavigationLinks.harmonyAppLink" class="amap-search-btn amap-nav-link" :href="harmonyNavigationLinks.harmonyAppLink">打开高德地图</a>
+        <button type="button" class="amap-search-btn" :disabled="!harmonyNavigationLinks.harmony" @click="tryHarmonyScheme">其他方式打开</button>
+        <button type="button" class="amap-search-btn" @click="copyNavigationDestination">复制目的地</button>
+        <a class="amap-search-btn amap-nav-link" :href="harmonyNavigationLinks.web" target="_blank" rel="noopener noreferrer">打开网页版</a>
+        <button v-if="harmonyNavError" type="button" class="amap-search-btn" @click="prepareHarmonyNavigation(harmonyNavTarget)">重新定位</button>
+      </template>
+    </AppModal>
+
     <Teleport to="body">
       <div
         v-if="deletePwdOpen"
@@ -352,8 +367,10 @@ import axios from 'axios'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import * as authApi from '@/api/auth'
+import AppModal from '@/components/AppModal.vue'
+import { disposeAmapSchemeLauncher, isHarmonyOS, launchAmapScheme, type NavigationOrigin } from '@/lib/amapNavigation'
 import { postNavPresetOpLog, type NavPresetOpAction } from '@/api/navPresetOpLogs'
-import { isAmapKeyConfigured, isAmapSecurityConfigured, loadAmap, openAmapNavigationTo } from '@/lib/amap'
+import { buildAmapNavigationLinks, isAmapKeyConfigured, isAmapSecurityConfigured, loadAmap, openAmapNavigationTo } from '@/lib/amap'
 import {
   DEFAULT_PRESET_MARKERS,
   findDuplicatePresetNameIndex,
@@ -1238,7 +1255,7 @@ function createPresetMarkerOverlay(AMap: any, index: number): any | null {
     if (!cur) return
     selectPresetAtIndex(index)
     if (props.markerNavigateOnClick) {
-      openAmapNavigationTo(cur.lng, cur.lat, cur.name)
+      openNavTarget(cur)
     }
   })
   return mk
@@ -1290,9 +1307,130 @@ function selectPresetFromCombo(i: number) {
   closePresetCombo()
 }
 
+const harmonyNavOpen = ref(false)
+const harmonyNavLoading = ref(false)
+const harmonyNavError = ref('')
+const harmonyLaunchHint = ref('')
+let harmonyLaunchTimer: ReturnType<typeof setTimeout> | undefined
+let harmonyLaunchLeftPage = false
+const harmonyNavOrigin = ref<NavigationOrigin>()
+const harmonyNavTarget = ref({ lng: 0, lat: 0, name: '' })
+let harmonyLocateGeneration = 0
+const harmonyNavigationLinks = computed(() => {
+  const t = harmonyNavTarget.value
+  return buildAmapNavigationLinks(t.lng, t.lat, t.name, harmonyNavOrigin.value)
+})
+
+function clearHarmonyLaunchAttempt() {
+  if (harmonyLaunchTimer) clearTimeout(harmonyLaunchTimer)
+  harmonyLaunchTimer = undefined
+  document.removeEventListener('visibilitychange', onHarmonyLaunchVisibility)
+  window.removeEventListener('pagehide', onHarmonyLaunchPageHide)
+  disposeAmapSchemeLauncher()
+}
+
+function onHarmonyLaunchVisibility() {
+  if (document.visibilityState === 'hidden') harmonyLaunchLeftPage = true
+}
+
+function onHarmonyLaunchPageHide() {
+  harmonyLaunchLeftPage = true
+}
+
+function tryHarmonyScheme() {
+  const uri = harmonyNavigationLinks.value.harmony
+  if (!uri) return
+  clearHarmonyLaunchAttempt()
+  harmonyLaunchHint.value = '正在尝试打开高德，请留意浏览器的打开应用提示。'
+  harmonyLaunchLeftPage = false
+  document.addEventListener('visibilitychange', onHarmonyLaunchVisibility)
+  window.addEventListener('pagehide', onHarmonyLaunchPageHide)
+  try {
+    launchAmapScheme(uri)
+  } catch {
+    clearHarmonyLaunchAttempt()
+    harmonyLaunchHint.value = '当前浏览器无法打开应用，可尝试系统浏览器，或复制目的地到高德地图。'
+    return
+  }
+  harmonyLaunchTimer = setTimeout(() => {
+    const leftPage = harmonyLaunchLeftPage || document.visibilityState === 'hidden'
+    clearHarmonyLaunchAttempt()
+    harmonyLaunchHint.value = leftPage
+      ? ''
+      : '尚未确认高德已打开。可尝试系统浏览器，或复制目的地到高德地图；无需重新下载安装。'
+  }, 3000)
+}
+
+async function copyNavigationDestination() {
+  clearHarmonyLaunchAttempt()
+  const t = harmonyNavTarget.value
+  const text = `${t.name}\n经度：${t.lng}，纬度：${t.lat}`
+  try {
+    await navigator.clipboard.writeText(text)
+    harmonyLaunchHint.value = '目的地已复制，可在高德地图中搜索目的地名称或坐标。'
+  } catch {
+    window.prompt('请复制目的地，在高德地图中搜索：', text)
+  }
+}
+
+function closeHarmonyNavigation() {
+  clearHarmonyLaunchAttempt()
+  harmonyLaunchHint.value = ''
+  harmonyNavOpen.value = false
+  harmonyLocateGeneration++
+  harmonyNavLoading.value = false
+  harmonyNavOrigin.value = undefined
+}
+
+function prepareHarmonyNavigation(target: { lng: number; lat: number; name: string }) {
+  clearHarmonyLaunchAttempt()
+  harmonyLaunchHint.value = ''
+  harmonyNavTarget.value = { ...target }
+  harmonyNavOpen.value = true
+  harmonyNavOrigin.value = undefined
+  harmonyNavError.value = ''
+  const generation = ++harmonyLocateGeneration
+  if (!geolocationRaw) {
+    harmonyNavError.value = '定位未就绪，请稍后重试或打开网页版。'
+    harmonyNavLoading.value = false
+    return
+  }
+  harmonyNavLoading.value = true
+  const failed = () => {
+    harmonyNavLoading.value = false
+    harmonyNavError.value = '无法获取当前位置，请允许系统浏览器定位后重试，或打开网页版。'
+  }
+  try {
+    // AMap returns GCJ-02, the same coordinate system as our saved destinations.
+    geolocationRaw.getCurrentPosition((status: string, result: any) => {
+      if (generation !== harmonyLocateGeneration) return
+      const lng = Number(result?.position?.lng)
+      const lat = Number(result?.position?.lat)
+      if (status !== 'complete' || !Number.isFinite(lng) || !Number.isFinite(lat)
+        || Math.abs(lng) > 180 || Math.abs(lat) > 90) {
+        failed()
+        return
+      }
+      harmonyNavOrigin.value = { lng, lat }
+      harmonyNavLoading.value = false
+      // Launch via an explicit link click, not this asynchronous callback.
+    })
+  } catch {
+    failed()
+  }
+}
+
+function openNavTarget(target: { lng: number; lat: number; name: string }) {
+  if (isHarmonyOS(navigator.userAgent)) {
+    prepareHarmonyNavigation(target)
+  } else {
+    openAmapNavigationTo(target.lng, target.lat, target.name)
+  }
+}
+
 function openNavForCurrent() {
   const t = navTarget.value
-  openAmapNavigationTo(t.lng, t.lat, t.name)
+  openNavTarget(t)
 }
 
 onMounted(async () => {
@@ -1304,7 +1442,7 @@ onMounted(async () => {
   initError.value = null
   try {
     const plugins = ['AMap.Scale']
-    const loadGeolocation = props.allowMarkerEdit
+    const loadGeolocation = true
     if (loadGeolocation) plugins.push('AMap.Geolocation')
     const AMap = await loadAmap(plugins)
     amapNS = AMap
@@ -1336,6 +1474,7 @@ onMounted(async () => {
     if (loadGeolocation) {
       geolocationRaw = new AMap.Geolocation({
         enableHighAccuracy: true,
+        convert: true,
         timeout: 15000,
         showMarker: false,
         showCircle: false,
@@ -1381,7 +1520,7 @@ onMounted(async () => {
       if (props.markerNavigateOnClick) {
         mainMarker.on('click', () => {
           const t = navTarget.value
-          openAmapNavigationTo(t.lng, t.lat, t.name)
+          openNavTarget(t)
         })
       }
     }
@@ -1397,6 +1536,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  closeHarmonyNavigation()
   if (lockStatusTipTimer) clearTimeout(lockStatusTipTimer)
   document.removeEventListener('pointerdown', onPresetComboDocPointerDown, true)
   geolocationRaw = null
@@ -1410,6 +1550,15 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.amap-nav-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-height: 44px;
+  text-decoration: none;
+}
+
 .amap-wrap {
   position: relative;
   width: 100%;

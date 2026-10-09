@@ -1,7 +1,8 @@
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class FuelCardCreate(BaseModel):
@@ -47,6 +48,8 @@ class FuelRecordOut(BaseModel):
     car_no: str
     occur_time: datetime
     volumn: Decimal
+    volume_available: bool = True
+    balance_available: bool = True
     amount: Decimal
     balance: Decimal
     workshop: str
@@ -55,6 +58,11 @@ class FuelRecordOut(BaseModel):
     gift_name: str
     created_at: datetime
     updated_at: datetime
+
+
+class FuelRecordDetail(FuelRecordOut):
+    platform_data: dict | None = None
+    product_detail_error: str | None = None
 
 
 class FuelRecordPage(BaseModel):
@@ -114,8 +122,16 @@ class FuelBalancePage(BaseModel):
 
 
 class FuelSyncRequest(BaseModel):
+    target: Literal['balances', 'bills'] = 'balances'
     date_from: date | None = Field(default=None, description="加油流水查询起始日期（含）")
     date_to: date | None = Field(default=None, description="加油流水查询截止日期（含）")
+
+    @model_validator(mode='after')
+    def validate_dates(self):
+        if self.target == 'bills' and self.date_from and self.date_to:
+            if self.date_from > self.date_to or (self.date_to - self.date_from).days > 366:
+                raise ValueError('请选择有效日期范围，单次最多查询一年')
+        return self
 
 
 class FuelSyncResult(BaseModel):

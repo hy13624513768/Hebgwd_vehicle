@@ -1,4 +1,5 @@
 import { http } from '@/api/http'
+import { getAccessToken } from '@/lib/authToken'
 
 export type FuelCard = {
   id: number
@@ -15,6 +16,8 @@ export type FuelRecord = {
   car_no: string
   occur_time: string
   volumn: string
+  volume_available: boolean
+  balance_available: boolean
   amount: string
   workshop: string
   org_name: string
@@ -22,6 +25,16 @@ export type FuelRecord = {
   gift_name: string
   created_at: string
   updated_at: string
+}
+
+export type FuelRecordDetail = FuelRecord & {
+  platform_data: Record<string, unknown> | null
+  product_detail_error: string | null
+}
+
+export async function getFuelRecordDetail(id: number): Promise<FuelRecordDetail> {
+  const { data } = await http.get<FuelRecordDetail>(`/fuel/records/${id}`, { timeout: 120000 })
+  return data
 }
 
 export type FuelBalance = {
@@ -58,6 +71,10 @@ export type FuelSyncResult = {
   record_written?: number
   balance_matched?: number
   record_matched?: number
+  record_inserted?: number
+  record_updated?: number
+  record_missing_volume?: number
+  record_missing_card?: number
   date_from?: string
   date_to?: string
   error?: string
@@ -79,10 +96,11 @@ export async function fetchFuelSyncStats(): Promise<FuelSyncStats> {
 }
 
 export async function syncFuelFromPlatform(
-  params: { date_from?: string; date_to?: string },
+  params: { date_from?: string; date_to?: string; target?: 'balances' | 'bills' },
   onProgress: (message: string) => void,
+  onBatchReady?: (batch: FuelSyncResult) => void | Promise<void>,
 ): Promise<FuelSyncResult> {
-  const token = localStorage.getItem('access_token')
+  const token = getAccessToken()
   const resp = await fetch(`${apiBaseUrl()}/fuel/sync`, {
     method: 'POST',
     headers: {
@@ -124,6 +142,7 @@ export async function syncFuelFromPlatform(
         error?: string
       }
       if (evt.type === 'progress' && evt.message) onProgress(evt.message)
+      if (evt.type === 'batch' && onBatchReady) await onBatchReady(evt as FuelSyncResult)
       if (evt.type === 'done') lastResult = { ...(evt as FuelSyncResult), ok: true }
       if (evt.type === 'error') throw new Error(evt.message || '同步失败')
     }
@@ -201,12 +220,16 @@ export type FuelRecordPage = {
 export type ListFuelRecordsParams = {
   page?: number
   page_size?: number
+  has_card_only?: boolean
+  car_no?: string
   card_asn?: string
   workshop?: string
   date_from?: string
   date_to?: string
   sort_by?: 'occur_time' | 'workshop' | 'amount' | 'volumn' | 'car_no' | 'card_asn'
   sort_dir?: 'asc' | 'desc'
+  sort_secondary_by?: 'occur_time' | 'car_no'
+  sort_secondary_dir?: 'asc' | 'desc'
 }
 
 export async function listFuelRecordsPaged(params: ListFuelRecordsParams): Promise<FuelRecordPage> {
@@ -221,6 +244,18 @@ export async function listFuelRecordWorkshops(): Promise<string[]> {
 
 export async function listFuelRecordCards(): Promise<string[]> {
   const { data } = await http.get<string[]>('/fuel/record-cards')
+  return data
+}
+
+export type FuelRecordCardOption = { card_asn: string; car_no: string }
+
+export async function listFuelRecordCardOptions(): Promise<FuelRecordCardOption[]> {
+  const { data } = await http.get<FuelRecordCardOption[]>('/fuel/record-card-options')
+  return data
+}
+
+export async function listFuelRecordVehicles(): Promise<string[]> {
+  const { data } = await http.get<string[]>('/fuel/record-vehicles')
   return data
 }
 

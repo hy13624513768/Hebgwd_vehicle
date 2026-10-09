@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { clearAccessToken, getAccessToken } from '@/lib/authToken'
 
 const apiRoot = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') ?? ''
 export const http = axios.create({
@@ -7,7 +8,7 @@ export const http = axios.create({
 })
 
 http.interceptors.request.use((config) => {
-  const token = localStorage.getItem('access_token')
+  const token = getAccessToken()
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
@@ -19,7 +20,7 @@ http.interceptors.response.use(
   error => {
     const isLogin = String(error.config?.url ?? '').includes('/auth/login')
     if (error.response?.status === 401 && !isLogin) {
-      localStorage.removeItem('access_token')
+      clearAccessToken()
       if (window.location.pathname !== '/login') {
         window.location.replace('/login?redirect=' + encodeURIComponent(window.location.pathname + window.location.search))
       }

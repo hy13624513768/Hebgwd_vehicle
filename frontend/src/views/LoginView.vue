@@ -393,17 +393,25 @@ async function onSubmit() {
     return
   }
   loading.value = true
+  toast.value = ''
+  let authenticated = false
   try {
     await user.login({ username: username.value, password: password.value })
+    authenticated = true
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/app/dashboard'
     await router.replace(redirect || '/app/dashboard')
   } catch (error) {
-    if (axios.isAxiosError(error)) {
+    if (authenticated) {
+      showToast('账户验证成功，但页面加载失败，请刷新页面重试')
+    } else if (axios.isAxiosError(error)) {
       const status = error.response?.status
       const detail = formatAxiosDetail(error.response?.data)
       if (status === 423) showToast(detail || '账号已锁定，请十分钟后重试')
       else if (status === 401) showToast(detail || '用户名或密码错误')
-      else if (status === 400) showToast(detail || '请求参数错误')
+      else if (status === 400 || status === 422) showToast(detail || '请求参数错误')
+      else if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') showToast('登录请求超时，请检查网络后重试')
+      else if (!error.response) showToast('无法连接服务器，请检查网络后重试')
+      else if (status && status >= 500) showToast('登录服务暂时异常，请稍后重试')
       else showToast('登录失败，请稍后重试')
     } else {
       showToast('登录失败，请稍后重试')

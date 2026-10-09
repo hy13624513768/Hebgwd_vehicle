@@ -34,7 +34,7 @@ spec:
         - name: harbor-registry-cred-hp-ns-1ht608x0
       initContainers:
         - name: prepare-kunlun-runtime
-          image: harbor.bja.sealos.run/ns-1ht608x0/hebgwd-vehicle-backend:20260930-142713-c7676b896dca-local
+          image: harbor.bja.sealos.run/ns-1ht608x0/hebgwd-vehicle-backend:20261008-164735-1062332896f1-local
           imagePullPolicy: IfNotPresent
           command:
             - sh
@@ -68,9 +68,9 @@ spec:
             - name: kunlun-runtime
               mountPath: /app/kunlun
         - name: database-bootstrap
-          image: harbor.bja.sealos.run/ns-1ht608x0/hebgwd-vehicle-backend:20260930-142713-c7676b896dca-local
+          image: harbor.bja.sealos.run/ns-1ht608x0/hebgwd-vehicle-backend:20261008-164735-1062332896f1-local
           imagePullPolicy: IfNotPresent
-          command: ["python", "-m", "app.db.bootstrap"]
+          command: ["python", "-c", "from sqlalchemy import inspect; from app.db.session import engine; expected={'platform_record_id','platform_data','volume_available','balance_available'}; actual={c['name'] for c in inspect(engine).get_columns('fuel_records',schema='fuel_management')}; assert expected <= actual, 'Required schema missing'; print('Required schema verified; no database initialization performed')"]
           envFrom:
             - secretRef:
                 name: hebgwd-vehicle-production
@@ -87,7 +87,7 @@ spec:
               drop: ["ALL"]
       containers:
         - name: api
-          image: harbor.bja.sealos.run/ns-1ht608x0/hebgwd-vehicle-backend:20260930-142713-c7676b896dca-local
+          image: harbor.bja.sealos.run/ns-1ht608x0/hebgwd-vehicle-backend:20261008-164735-1062332896f1-local
           imagePullPolicy: IfNotPresent
           envFrom:
             - secretRef:
@@ -192,7 +192,7 @@ spec:
         - name: harbor-registry-cred-hp-ns-1ht608x0
       containers:
         - name: web
-          image: harbor.bja.sealos.run/ns-1ht608x0/hebgwd-vehicle-frontend:20260930-142713-c7676b896dca-local
+          image: harbor.bja.sealos.run/ns-1ht608x0/hebgwd-vehicle-frontend:20261008-164735-1062332896f1-local
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

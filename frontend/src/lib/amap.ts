@@ -1,5 +1,7 @@
 import AMapLoader from '@amap/amap-jsapi-loader'
 
+export { buildAmapNavigationLinks, openAmapNavigationTo } from './amapNavigation'
+
 declare global {
   interface Window {
     _AMapSecurityConfig?: { securityJsCode?: string; serviceHost?: string }
@@ -41,28 +43,4 @@ export function loadAmap(plugins: string[] = []) {
     version: '2.0',
     plugins,
   })
-}
-
-/**
- * 浏览器中调起「驾车导航」到指定点（手机端 `callnative=1` 会尝试打开高德地图 App）。
- * 文档：https://lbs.amap.com/api/uri-api/guide/mobile/universal-map
- * 微信内置浏览器等环境可能拦截外链，需提示用户用系统浏览器打开。
- */
-export function openAmapNavigationTo(lng: number, lat: number, poiName = '目的地') {
-  const q = `https://uri.amap.com/navigation?to=${lng},${lat},${encodeURIComponent(poiName)}&mode=car&coordinate=gaode&callnative=1`
-  /**
-   * 注意：第三个参数含 `noopener` 时，规范要求 `window.open` 固定返回 `null`，
-   * 即使新标签已打开 —— 若据此再执行 `location.href` 会导致当前页也被跳转。
-   */
-  const opened = window.open(q, '_blank')
-  if (opened) {
-    try {
-      opened.opener = null
-    } catch {
-      /* 跨域等环境下可能无法赋值 */
-    }
-    return
-  }
-  /** 仅当弹窗被拦截时回退为当前页打开 */
-  window.location.href = q
 }

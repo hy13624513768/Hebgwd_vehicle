@@ -22,19 +22,15 @@
       <p class="accounts-mobile-summary">共 {{ total }} 个账号 · 已显示 {{ items.length }} 个</p>
 
       <div class="toolbar">
-        <div class="toolbar__search-wrap">
-          <input
-            v-model.trim="q"
-            class="toolbar__search"
-            type="search"
-            placeholder="搜索用户名 / 显示名"
-            aria-label="搜索账号"
-            @keydown.enter.prevent="runSearch"
-          />
-          <button type="button" class="btn btn--ghost" @click="runSearch">搜索</button>
-        </div>
+        <input
+          v-model.trim="q"
+          class="toolbar__search"
+          type="search"
+          placeholder="搜索用户名 / 显示名"
+          aria-label="搜索账号"
+          @keydown.enter.prevent="runSearch"
+        />
         <div class="toolbar__field">
-          <label class="toolbar__label" for="accounts-role-filter">分级</label>
           <select
             id="accounts-role-filter"
             v-model="filterRole"
@@ -47,14 +43,17 @@
             </option>
           </select>
         </div>
+        <button type="button" class="btn btn--ghost" @click="runSearch">搜索</button>
         <button type="button" class="btn btn--primary" @click="openCreate">新建账号</button>
         <button
           type="button"
-          class="btn"
+          class="btn btn--ghost"
+          title="从驾驶员表批量生成账号"
+          aria-label="从驾驶员表批量生成账号"
           :disabled="generating"
           @click="generateDriverAccounts"
         >
-          {{ generating ? '生成中…' : '从驾驶员表批量生成账号' }}
+          {{ generating ? '生成中…' : '批量生成账号' }}
         </button>
       </div>
 
@@ -700,35 +699,13 @@ onBeforeUnmount(() => {
   align-items: stretch;
   gap: 0.65rem;
   margin-bottom: 1rem;
-  padding: 0.7rem;
-  border: 1px solid rgba(201, 100, 66, 0.15);
-  border-radius: 16px;
-  background:
-    radial-gradient(circle at 10% 0%, rgba(201, 100, 66, 0.16), transparent 36%),
-    linear-gradient(125deg, rgba(255, 255, 255, 0.95), rgba(239, 232, 215, 0.58));
-}
-
-.toolbar__search-wrap {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex: 1 1 220px;
-  min-width: 0;
 }
 
 .toolbar__field {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
   flex: 0 1 168px;
   min-width: 140px;
-}
-
-.toolbar__label {
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--cl-olive);
-  letter-spacing: 0.04em;
 }
 
 .toolbar__select {
@@ -745,7 +722,7 @@ onBeforeUnmount(() => {
 }
 
 .toolbar__search {
-  flex: 1;
+  flex: 1 1 220px;
   min-width: 0;
   min-height: 44px;
   padding: 0.5rem 0.7rem;
@@ -1018,26 +995,6 @@ select.inp {
 
 /* 移动端：表格改为卡片行 */
 @media (max-width: 768px) {
-  .toolbar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .toolbar__search-wrap {
-    flex: none;
-    width: 100%;
-  }
-
-  .toolbar__field {
-    flex: none;
-    width: 100%;
-    max-width: none;
-  }
-
-  .toolbar .btn--primary {
-    width: 100%;
-  }
-
   .table-wrap {
     border: none;
     background: transparent;
@@ -1183,11 +1140,9 @@ select.inp {
     margin-bottom: 6px;
   }
 
-  .toolbar__search-wrap {
+  .toolbar__search {
     grid-column: 1 / -1;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 6px;
+    width: 100%;
   }
 
   .toolbar__search,
@@ -1201,19 +1156,14 @@ select.inp {
 
   .toolbar__field {
     min-width: 0;
-  }
-
-  .toolbar__label {
-    display: none;
-  }
-
-  .toolbar > .btn--primary {
     width: 100%;
   }
 
-  .toolbar > .btn:last-child {
-    grid-column: 1 / -1;
-    min-height: 34px;
+  .toolbar .btn {
+    width: 100%;
+    min-width: 0;
+    min-height: 36px;
+    padding: 6px 8px;
     font-size: 12px;
   }
 
@@ -1275,9 +1225,27 @@ select.inp {
     padding-bottom: 8px;
   }
 
+  .data-table td.col-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding-top: 7px;
+  }
+
+  .data-table td.col-actions::before {
+    content: none;
+  }
+
+  .row-actions {
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
   .link-btn {
-    min-height: 30px;
-    padding: 4px 8px;
+    min-height: 32px;
+    padding: 5px 12px;
+    border: 1px solid var(--cl-border-warm);
+    border-radius: 8px;
+    background: var(--cl-white);
     font-size: 12px;
     text-decoration: none;
   }

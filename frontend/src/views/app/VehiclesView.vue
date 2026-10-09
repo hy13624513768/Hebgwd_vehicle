@@ -299,7 +299,7 @@
           <tr class="workshop-group-row">
             <td colspan="9"><strong>{{ group.workshop }}</strong><span>{{ group.items.length }} 台</span></td>
           </tr>
-          <tr v-for="v in group.items" :key="v.id">
+          <tr v-for="v in group.items" :key="v.id" class="motion-row">
             <td class="t col-unit" :title="v.org_unit || undefined">{{ cell(v.org_unit) }}</td>
             <td class="t col-narrow" :title="v.vehicle_class || undefined">{{ cell(v.vehicle_class) }}</td>
             <td class="strong col-plate">{{ v.plate_number }}</td>
@@ -331,7 +331,7 @@
         <ul v-else class="vehicle-cards">
           <template v-for="group in visibleVehicleGroups" :key="`mobile-${group.workshop}`">
           <li class="workshop-group-heading"><strong>{{ group.workshop }}</strong><span>{{ group.items.length }} 台</span></li>
-          <li v-for="v in group.items" :key="`m-${v.id}`" class="vehicle-card">
+          <li v-for="v in group.items" :key="`m-${v.id}`" class="vehicle-card motion-card">
             <div class="vehicle-card__top">
               <span class="vehicle-card__plate">{{ v.plate_number }}</span>
               <span class="vehicle-card__pill">{{ cell(v.vehicle_class) }}</span>

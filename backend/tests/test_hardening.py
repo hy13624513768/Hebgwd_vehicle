@@ -309,6 +309,116 @@ class HardeningTests(unittest.TestCase):
         self.assertIn('"platform": "kunlun"', response.text)
         sync.assert_called_once()
 
+    def test_bill_sync_dispatches_dates_without_balance_stats(self):
+        result = {"ok": True, "record_written": 41, "record_inserted": 0, "record_updated": 41}
+        with patch("app.services.kunlun_bill_service.sync_kunlun_bills", return_value=result) as bills, \
+             patch("app.services.kunlun_balance_service.sync_kunlun_balances") as balances, \
+             patch("app.services.fuel_sync_stats_service.record_fuel_sync_log") as stats:
+            response = self.client.post('/api/v1/fuel/sync', json={
+                'target': 'bills', 'date_from': '2026-10-01', 'date_to': '2026-10-08'})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('"record_updated": 41', response.text)
+        self.assertEqual([str(value) for value in bills.call_args.args], ['2026-10-01', '2026-10-08'])
+        balances.assert_not_called()
+        stats.assert_not_called()
+
+    def test_missing_bill_volume_is_blank_in_export(self):
+        from openpyxl import load_workbook
+        from io import BytesIO
+        with self.sessions() as db:
+            db.add(FuelRecord(card_asn='C', occur_time=datetime(2026, 10, 1), amount=10,
+                              volumn=0, balance=0, volume_available=False, balance_available=False))
+            db.commit()
+        response = self.client.get('/api/v1/fuel/records/export.xlsx')
+        self.assertEqual(response.status_code, 200)
+        sheet = load_workbook(BytesIO(response.content)).active
+        self.assertIsNone(sheet.cell(2, 6).value)
+        self.assertIsNone(sheet.cell(2, 7).value)
+        self.assertIsNone(sheet.cell(2, 10).value)
+
+    def test_bill_vehicle_filter_sort_and_export(self):
+        from io import BytesIO
+        from openpyxl import load_workbook
+        with self.sessions() as db:
+            db.add_all([
+                FuelRecord(card_asn='C1', car_no='TEST-A', workshop_id=self.ids['a'], occur_time=datetime(2026, 10, 2), amount=20),
+                FuelRecord(card_asn='C2', car_no='TEST-A', workshop_id=self.ids['a'], occur_time=datetime(2026, 10, 1), amount=10),
+                FuelRecord(card_asn='C3', car_no='TEST-B', workshop_id=self.ids['b'], occur_time=datetime(2026, 10, 3), amount=30),
+            ])
+            db.commit()
+        params = {'car_no': 'TEST-A', 'sort_by': 'occur_time', 'sort_dir': 'desc'}
+        response = self.client.get('/api/v1/fuel/records', params=params)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['total'], 2)
+        self.assertEqual([float(r['amount']) for r in response.json()['items']], [20, 10])
+        sheet = load_workbook(BytesIO(self.client.get('/api/v1/fuel/records/export.xlsx', params=params).content)).active
+        self.assertEqual(sheet.max_row, 3)
+        self.assertEqual([float(sheet.cell(i, 8).value) for i in (2, 3)], [20, 10])
+        by_vehicle = self.client.get('/api/v1/fuel/records', params={'sort_by': 'car_no', 'sort_dir': 'desc'}).json()
+        self.assertEqual([r['car_no'] for r in by_vehicle['items']], ['TEST-B', 'TEST-A', 'TEST-A'])
+
+    def test_bill_vehicle_options_respect_workshop_scope(self):
+        with self.sessions() as db:
+            db.add_all([
+                FuelRecord(card_asn='C-A', car_no='TEST-A', workshop_id=self.ids['a'], occur_time=datetime(2026, 10, 1)),
+                FuelRecord(card_asn='C-B', car_no='TEST-B', workshop_id=self.ids['b'], occur_time=datetime(2026, 10, 1)),
+            ])
+            db.commit()
+        self.actor = self.ids['manager']
+        self.assertEqual(self.client.get('/api/v1/fuel/record-vehicles').json(), ['TEST-A'])
+        self.assertEqual(self.client.get('/api/v1/fuel/records', params={'car_no': 'TEST-B'}).json()['total'], 0)
+
+    def test_bill_detail_scope_and_product_cache(self):
+        with self.sessions.begin() as db:
+            row = FuelRecord(card_asn='C-B', workshop_id=self.ids['b'], occur_time=datetime(2026, 10, 1),
+                             platform_data={'orderNo': 'ORDER', 'driverName': 'Synthetic driver'})
+            db.add(row); db.flush()
+            record_id = row.id
+        with patch('app.services.kunlun_bill_service.fetch_bill_products', return_value=[{'productName': 'Diesel', 'unit': 'L'}]) as fetch:
+            self.actor = self.ids['manager']
+            self.assertEqual(self.client.get(f'/api/v1/fuel/records/{record_id}').status_code, 404)
+            fetch.assert_not_called()
+            self.actor = self.ids['admin']
+            detail = self.client.get(f'/api/v1/fuel/records/{record_id}')
+            self.assertEqual(detail.status_code, 200)
+            self.assertEqual(detail.json()['platform_data']['productDetails'][0]['productName'], 'Diesel')
+            self.assertEqual(self.client.get(f'/api/v1/fuel/records/{record_id}').status_code, 200)
+            fetch.assert_called_once_with('ORDER')
+            listing = self.client.get('/api/v1/fuel/records').json()['items'][0]
+            self.assertNotIn('platform_data', listing)
+
+    def test_bill_detail_platform_failure_keeps_bill_and_allows_retry(self):
+        with self.sessions.begin() as db:
+            row = FuelRecord(card_asn='C-A', workshop_id=self.ids['a'], occur_time=datetime(2026, 10, 1),
+                             platform_data={'orderNo': 'ORDER'}, amount=100)
+            db.add(row); db.flush()
+            record_id = row.id
+        with patch('app.services.kunlun_bill_service.fetch_bill_products', side_effect=RuntimeError('synthetic failure')):
+            result = self.client.get(f'/api/v1/fuel/records/{record_id}')
+            self.assertEqual(result.status_code, 200)
+            self.assertEqual(float(result.json()['amount']), 100)
+            self.assertIsNotNone(result.json()['product_detail_error'])
+            self.assertNotIn('productDetails', result.json()['platform_data'])
+        with patch('app.services.kunlun_bill_service.fetch_bill_products', return_value=[]):
+            result = self.client.get(f'/api/v1/fuel/records/{record_id}').json()
+            self.assertIsNone(result['product_detail_error'])
+            self.assertEqual(result['platform_data']['productDetails'], [])
+
+    def test_bill_missing_card_filter_keeps_count_and_export_consistent(self):
+        from io import BytesIO
+        from openpyxl import load_workbook
+        with self.sessions() as db:
+            db.add_all([FuelRecord(card_asn=card, car_no=plate, occur_time=datetime(2026, 10, 1))
+                        for card, plate in [('CARD', 'VALID'), ('', 'EMPTY'), ('   ', 'SPACE')]])
+            db.commit()
+        params = {'has_card_only': True, 'page_size': 1}
+        response = self.client.get('/api/v1/fuel/records', params=params).json()
+        self.assertEqual(response['total'], 1)
+        self.assertEqual([r['car_no'] for r in response['items']], ['VALID'])
+        sheet = load_workbook(BytesIO(self.client.get('/api/v1/fuel/records/export.xlsx', params=params).content)).active
+        self.assertEqual(sheet.max_row, 2)
+        self.assertEqual(self.client.get('/api/v1/fuel/record-vehicles').json(), ['VALID'])
+
     def test_fuel_filter_uses_shanghai_calendar_days(self):
         with self.sessions() as db:
             db.add(FuelRecord(card_asn="C", occur_time=datetime(2026, 9, 1, 17), amount=10, balance=20, volumn=2))

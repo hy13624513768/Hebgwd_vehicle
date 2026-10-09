@@ -23,6 +23,9 @@
           >
             {{ syncingBalances ? '正在同步…' : '同步最新余额' }}
           </button>
+          <RouterLink to="/app/fuel-bills" class="ghost balance-bills-link">
+            账单查询 <span aria-hidden="true">→</span>
+          </RouterLink>
           <div class="balance-sync-stats" aria-label="同步刷新统计">
             <div class="balance-sync-stat">
               <span class="balance-sync-stat__label">今日刷新</span>
@@ -66,7 +69,7 @@
         </button>
       </div>
 
-      <div v-if="syncStatus" class="sync-status">{{ syncStatus }}</div>
+      <FuelQueryStatus :message="syncStatus" :active="syncingBalances" title="正在查询油卡余额" />
       <div v-if="msg" class="msg">{{ msg }}</div>
 
       <div class="rec-toolbar balance-toolbar">
@@ -131,7 +134,7 @@
           <tr><td colspan="7" class="hint">暂无油卡余额数据。</td></tr>
         </tbody>
         <tbody v-else>
-          <tr v-for="(b, idx) in balances" :key="`bal-${b.id}`">
+          <tr v-for="(b, idx) in balances" :key="`bal-${b.id}`" class="motion-row">
             <td class="col-seq">{{ rowSeq(idx) }}</td>
             <td>{{ b.card_no }}</td>
             <td>{{ b.workshop === '/' ? '—' : b.workshop || '—' }}</td>
@@ -149,7 +152,7 @@
         <p v-if="loadingBalances" class="hint balance-mobile__hint">余额数据加载中…</p>
         <p v-else-if="!balances.length" class="hint balance-mobile__hint">暂无油卡余额数据。</p>
         <ul v-else class="balance-cards" aria-label="油卡余额列表">
-          <li v-for="(b, idx) in balances" :key="`bal-m-${b.id}`" class="balance-card">
+          <li v-for="(b, idx) in balances" :key="`bal-m-${b.id}`" class="balance-card motion-card">
             <div class="balance-card__head">
               <span class="balance-card__seq">{{ rowSeq(idx) }}</span>
               <div class="balance-card__identity">
@@ -194,6 +197,7 @@ import { useRouter } from 'vue-router'
 
 import * as fuelApi from '@/api/fuel'
 import SearchableSelect, { type SearchableOption } from '@/components/SearchableSelect.vue'
+import FuelQueryStatus from '@/components/FuelQueryStatus.vue'
 import type { FuelBalance, FuelBalanceBucket } from '@/api/fuel'
 
 const router = useRouter()
@@ -352,8 +356,9 @@ async function syncBalancesFromPlatform() {
   loadingBalances.value = true
   msg.value = ''
   syncStatus.value = '准备连接中国石油油卡平台…'
+  let syncedTotal = 0
   try {
-    await fuelApi.syncFuelFromPlatform(
+    const result = await fuelApi.syncFuelFromPlatform(
       {
         date_from: monthStartIso(),
         date_to: todayIso(),
@@ -362,14 +367,13 @@ async function syncBalancesFromPlatform() {
         syncStatus.value = message
       },
     )
+    syncedTotal = result.balance_written ?? 0
   } catch (e) {
     msg.value = e instanceof Error ? e.message : '同步中国石油油卡数据失败'
     syncStatus.value = ''
     loadingBalances.value = false
     syncingBalances.value = false
     return
-  } finally {
-    syncingBalances.value = false
   }
 
   syncStatus.value = '同步完成，正在刷新余额…'
@@ -382,11 +386,12 @@ async function syncBalancesFromPlatform() {
     balanceVehicles.value = vehicles
     await fetchBalancePage()
     await loadSyncStats()
-    syncStatus.value = ''
+    syncStatus.value = `共 ${syncedTotal} 条余额数据`
   } catch {
     msg.value = '数据已同步，但刷新余额失败，请稍后重试'
     syncStatus.value = ''
   } finally {
+    syncingBalances.value = false
     loadingBalances.value = false
   }
 }
@@ -1019,6 +1024,21 @@ button.bar-row.bar-row--active {
   box-sizing: border-box;
 }
 
+.balance-bills-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 8px 14px;
+  box-sizing: border-box;
+  text-decoration: none;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.balance-bills-link:hover { background: var(--cl-warm-sand); }
+.balance-bills-link:focus-visible { outline: 2px solid var(--cl-brand); outline-offset: 2px; }
+
 .balance-sync-stats {
   width: 100%;
   flex: none;
@@ -1074,16 +1094,6 @@ button.bar-row.bar-row--active {
   font-size: 12px;
   color: var(--cl-olive);
   line-height: 1.45;
-}
-
-.sync-status {
-  margin-bottom: 10px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(201, 100, 66, 0.35);
-  background: rgba(201, 100, 66, 0.1);
-  color: #8a4b22;
-  font-size: 13px;
 }
 
 .msg {
@@ -1581,6 +1591,9 @@ th {
     align-items: stretch;
     gap: 7px;
   }
+
+  .balance-bills-link { grid-column: 1; grid-row: 2; min-height: 40px; padding: 6px 8px; font-size: 12px; border-radius: 9px; }
+  .balance-sync-stats { grid-column: 2; grid-row: 1 / 3; }
 
   .balance-sync-btn {
     width: 100%;

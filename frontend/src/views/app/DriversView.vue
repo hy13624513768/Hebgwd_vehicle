@@ -94,7 +94,7 @@
           <tr class="driver-workshop-row">
             <td colspan="10"><strong>{{ group.workshop }}</strong><span>{{ group.items.length }} 人</span></td>
           </tr>
-          <tr v-for="item in group.items" :key="item.driver.id" :class="{ 'is-restricted': item.driver.is_restricted }">
+          <tr v-for="item in group.items" :key="item.driver.id" class="motion-row" :class="{ 'is-restricted': item.driver.is_restricted }">
             <template v-if="!item.driver.is_restricted">
             <td class="strong">{{ item.driver.name }}</td>
             <td>{{ item.driver.phone }}</td>
@@ -140,7 +140,7 @@
         <ul v-else class="driver-cards">
           <template v-for="group in driverGroups" :key="`mobile-${group.workshop}`">
           <li class="driver-workshop-heading"><strong>{{ group.workshop }}</strong><span>{{ group.items.length }} 人</span></li>
-          <li v-for="item in group.items" :key="`m-${item.driver.id}`" class="driver-card">
+          <li v-for="item in group.items" :key="`m-${item.driver.id}`" class="driver-card motion-card">
             <div class="driver-card__top">
               <span class="driver-card__name">{{ item.driver.name }}</span>
               <span v-if="!item.driver.is_restricted" class="driver-card__status">{{ driverEmploymentStatusLabel(item.driver) }}</span>

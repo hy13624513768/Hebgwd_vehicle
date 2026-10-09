@@ -1,5 +1,6 @@
 <template>
   <Teleport to="body">
+    <Transition name="modal">
     <div v-if="open" class="mask" @click.self="emit('close')">
       <div class="panel" role="dialog" aria-modal="true" :aria-label="title">
         <div class="hd">
@@ -14,6 +15,7 @@
         </div>
       </div>
     </div>
+    </Transition>
   </Teleport>
 </template>
 
@@ -23,6 +25,25 @@ const emit = defineEmits<{ (e: 'close'): void }>()
 </script>
 
 <style scoped>
+.modal-enter-active,
+.modal-leave-active {
+  transition: opacity 200ms ease;
+}
+.modal-enter-active .panel,
+.modal-leave-active .panel {
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.modal-enter-from,
+.modal-leave-to { opacity: 0; }
+.modal-enter-from .panel,
+.modal-leave-to .panel { transform: translateY(14px); }
+@media (prefers-reduced-motion: reduce) {
+  .modal-enter-active, .modal-leave-active,
+  .modal-enter-active .panel, .modal-leave-active .panel {
+    transition: none;
+  }
+}
+
 .mask {
   position: fixed;
   inset: 0;

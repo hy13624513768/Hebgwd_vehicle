@@ -436,6 +436,36 @@ onMounted(() => void loadScope(scope.value))
 .bucket-item { padding: 10px; border: 1px solid rgba(232, 224, 212, .9); border-radius: 12px; }.bucket-item__top, .bucket-item__bottom { display: flex; justify-content: space-between; gap: 10px; }.bucket-item__top { margin-bottom: 7px; font-size: 12px; }.bucket-item__bottom { margin-top: 6px; color: var(--cl-olive); font-size: 10px; }
 .record-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid rgba(232, 224, 212, .8); }.record-row:last-child { border-bottom: 0; }.record-row > div { min-width: 0; }.record-row div strong, .record-row div span { display: block; }.record-row div strong { font-size: 12px; }.record-row div span { margin-top: 2px; color: var(--cl-olive); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.record-row > strong { flex: 0 0 auto; font-size: 12px; font-variant-numeric: tabular-nums; }
 .analysis-state { display: flex; min-height: 220px; align-items: center; justify-content: center; gap: 9px; border: 1px solid var(--cl-border-cream); border-radius: 16px; background: var(--cl-white); color: var(--cl-olive); }.analysis-state--error { flex-direction: column; }.analysis-state--error strong { color: var(--cl-near-black); }.analysis-state--error button { padding: 8px 12px; border: 0; border-radius: 9px; background: var(--cl-brand); color: white; }.loading-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--cl-brand); animation: pulse 1s ease-in-out infinite alternate; }.empty-copy { margin: 8px 0; color: var(--cl-olive); font-size: 12px; text-align: center; }
+.kpi-card, .data-card {
+  animation: analysis-card-in 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.scope-tab { transition: background-color 180ms ease, color 180ms ease; }
+.rank-row__track > span, .compact-bar__track > span,
+.bucket-item__track > span, .age-item__track > span {
+  transform-origin: left center;
+  animation: analysis-bar-in 420ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: width 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.year-item__bar > span {
+  transform-origin: center bottom;
+  animation: analysis-column-in 420ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: height 300ms ease;
+}
+@keyframes analysis-card-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes analysis-bar-in { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes analysis-column-in { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .kpi-card, .data-card, .loading-dot,
+  .rank-row__track > span, .compact-bar__track > span,
+  .bucket-item__track > span, .age-item__track > span, .year-item__bar > span {
+    animation: none;
+    transition: none;
+  }
+  .scope-tab { transition: none; }
+}
 @keyframes pulse { to { opacity: .25; transform: scale(.75); } }
 
 @media (max-width: 768px) {

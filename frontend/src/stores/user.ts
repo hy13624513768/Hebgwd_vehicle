@@ -1,10 +1,11 @@
 import { defineStore } from 'pinia'
 
 import * as authApi from '@/api/auth'
+import { clearAccessToken, getAccessToken, setAccessToken } from '@/lib/authToken'
 
 export const useUserStore = defineStore('user', {
   state: () => ({
-    token: (localStorage.getItem('access_token') ?? '') as string,
+    token: getAccessToken(),
     profile: null as null | authApi.UserInfo,
   }),
   actions: {
@@ -12,7 +13,7 @@ export const useUserStore = defineStore('user', {
       const res = await authApi.login(payload)
       this.token = res.access_token
       this.profile = res.user
-      localStorage.setItem('access_token', this.token)
+      setAccessToken(this.token)
     },
     async fetchMe() {
       this.profile = await authApi.me()
@@ -20,7 +21,7 @@ export const useUserStore = defineStore('user', {
     logout() {
       this.token = ''
       this.profile = null
-      localStorage.removeItem('access_token')
+      clearAccessToken()
     },
   },
 })

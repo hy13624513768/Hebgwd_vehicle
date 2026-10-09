@@ -33,6 +33,7 @@ from app.schemas.fuel import (
     FuelEntryOut,
     FuelRecordCreate,
     FuelRecordOut,
+    FuelRecordDetail,
     FuelRecordPage,
     FuelSyncRequest,
     FuelSyncStatsOut,
@@ -66,9 +67,9 @@ def _bucket_stat_cond(bucket: dict):
 
 @router.post("/sync")
 async def sync_fuel_from_platform(current: CurrentUser, body: FuelSyncRequest) -> StreamingResponse:
-    """允许所有已登录账号调用本地昆仑司机卡接口刷新余额。"""
+    """复用本地昆仑登录，按指定类型同步余额或账单。"""
     return StreamingResponse(
-        stream_fuel_sync(body.date_from, body.date_to, user_id=current.id),
+        stream_fuel_sync(body.date_from, body.date_to, user_id=current.id, target=body.target),
         media_type="application/x-ndjson",
         headers={
             "Cache-Control": "no-cache",
@@ -279,13 +280,19 @@ def list_records(
         Query(description="排序字段"),
     ] = "card_asn",
     sort_dir: Annotated[Literal["asc", "desc"], Query(description="排序方向")] = "asc",
+    car_no: Annotated[str | None, Query(max_length=64, description="车牌号精确匹配")] = None,
+    has_card_only: bool = False,
+    sort_secondary_by: Literal["occur_time", "car_no"] | None = None,
+    sort_secondary_dir: Literal["asc", "desc"] = "asc",
 ) -> FuelRecordPage:
-    conds: list = []
+    conds: list = [func.trim(FuelRecord.card_asn) != ""] if has_card_only else []
     cnt_stmt = scoped(select(func.count()).select_from(FuelRecord), FuelRecord, current)
     stmt = scoped(select(FuelRecord), FuelRecord, current)
     card = (card_asn or "").strip()
     if card:
         conds.append(FuelRecord.card_asn == card)
+    if car_no and car_no.strip():
+        conds.append(FuelRecord.car_no == car_no.strip())
     ws = resolve_workshop_filter(db, workshop)
     if ws:
         conds.append(FuelRecord.workshop == ws)
@@ -299,19 +306,31 @@ def list_records(
         stmt = stmt.where(w)
     total = int(db.scalar(cnt_stmt) or 0)
     offset = (page - 1) * page_size
-    sort_col_map = {
-        "occur_time": FuelRecord.occur_time,
-        "workshop": FuelRecord.workshop,
-        "amount": FuelRecord.amount,
-        "volumn": FuelRecord.volumn,
-        "car_no": FuelRecord.car_no,
-        "card_asn": FuelRecord.card_asn,
-    }
-    col = sort_col_map[sort_by]
-    order_col = col.asc() if sort_dir == "asc" else col.desc()
-    stmt = stmt.order_by(order_col, FuelRecord.id.asc()).offset(offset).limit(page_size)
+    stmt = stmt.order_by(*_record_ordering(db, sort_by, sort_dir, sort_secondary_by, sort_secondary_dir)).offset(offset).limit(page_size)
     items = list(db.scalars(stmt).all())
     return FuelRecordPage(items=items, total=total)
+
+
+def _record_ordering(db, sort_by, sort_dir, secondary_by=None, secondary_dir="asc") -> list:
+    """多级排序按上海自然日分组，再按车号；最后以时间、ID 保持翻页稳定。"""
+    secondary_by = secondary_by if secondary_by != sort_by else None
+
+    def column(field):
+        if field == "occur_time" and secondary_by:
+            if db.get_bind().dialect.name == "sqlite":
+                return func.date(FuelRecord.occur_time, "+8 hours")
+            return func.date(func.timezone("Asia/Shanghai", FuelRecord.occur_time))
+        return getattr(FuelRecord, field)
+
+    primary = column(sort_by)
+    ordering = [primary.asc() if sort_dir == "asc" else primary.desc()]
+    if secondary_by:
+        secondary = column(secondary_by)
+        ordering.append(secondary.asc() if secondary_dir == "asc" else secondary.desc())
+        if "occur_time" in (sort_by, secondary_by):
+            time_dir = sort_dir if sort_by == "occur_time" else secondary_dir
+            ordering.append(FuelRecord.occur_time.asc() if time_dir == "asc" else FuelRecord.occur_time.desc())
+    return [*ordering, FuelRecord.id.asc()]
 
 
 def _record_conditions(
@@ -320,11 +339,15 @@ def _record_conditions(
     workshop: str | None,
     date_from: date | None,
     date_to: date | None,
+    car_no: str | None = None,
+    has_card_only: bool = False,
 ) -> list:
-    conds: list = []
+    conds: list = [func.trim(FuelRecord.card_asn) != ""] if has_card_only else []
     card = (card_asn or "").strip()
     if card:
         conds.append(FuelRecord.card_asn == card)
+    if car_no and car_no.strip():
+        conds.append(FuelRecord.car_no == car_no.strip())
     ws = resolve_workshop_filter(db, workshop)
     if ws:
         conds.append(FuelRecord.workshop == ws)
@@ -351,6 +374,36 @@ def list_record_cards(db: DbSession, current: CurrentUser) -> list[str]:
     return [card.strip() for (card,) in rows if card and card.strip()]
 
 
+@router.get("/record-card-options", response_model=list[dict[str, str]])
+def list_record_card_options(db: DbSession, current: CurrentUser) -> list[dict[str, str]]:
+    # 每张油卡取当前用户可见的最新账单车号，不受列表分页影响。
+    card = func.trim(FuelRecord.card_asn)
+    ranked = scoped(
+        select(
+            card.label("card_asn"),
+            FuelRecord.car_no,
+            func.row_number().over(
+                partition_by=card,
+                order_by=(FuelRecord.occur_time.desc(), FuelRecord.id.desc()),
+            ).label("rank"),
+        ), FuelRecord, current,
+    ).where(card != "").subquery()
+    rows = db.execute(
+        select(ranked.c.card_asn, ranked.c.car_no)
+        .where(ranked.c.rank == 1)
+        .order_by(ranked.c.card_asn.asc())
+    ).all()
+    return [{"card_asn": card_no, "car_no": (car_no or "").strip()} for card_no, car_no in rows]
+
+
+@router.get("/record-vehicles", response_model=list[str])
+def list_record_vehicles(db: DbSession, current: CurrentUser) -> list[str]:
+    stmt = scoped(select(FuelRecord.car_no), FuelRecord, current).where(
+        func.trim(FuelRecord.car_no) != "", func.trim(FuelRecord.card_asn) != ""
+    ).distinct().order_by(FuelRecord.car_no.asc())
+    return list(db.scalars(stmt).all())
+
+
 @router.get("/records/export.xlsx")
 def export_records_xlsx(
     db: DbSession,
@@ -359,12 +412,18 @@ def export_records_xlsx(
     workshop: Annotated[str | None, Query(max_length=128)] = None,
     date_from: Annotated[date | None, Query(description="交易日期起（含）")] = None,
     date_to: Annotated[date | None, Query(description="交易日期止（含）")] = None,
+    car_no: Annotated[str | None, Query(max_length=64)] = None,
+    sort_by: Literal["occur_time", "workshop", "amount", "volumn", "car_no", "card_asn"] = "occur_time",
+    sort_dir: Literal["asc", "desc"] = "desc",
+    has_card_only: bool = False,
+    sort_secondary_by: Literal["occur_time", "car_no"] | None = None,
+    sort_secondary_dir: Literal["asc", "desc"] = "asc",
 ) -> StreamingResponse:
-    conds = _record_conditions(db, card_asn, workshop, date_from, date_to)
+    conds = _record_conditions(db, card_asn, workshop, date_from, date_to, car_no, has_card_only)
     stmt = scoped(select(FuelRecord), FuelRecord, current)
     if conds:
         stmt = stmt.where(and_(*conds))
-    rows = list(db.scalars(stmt.order_by(FuelRecord.id.desc())).all())
+    rows = list(db.scalars(stmt.order_by(*_record_ordering(db, sort_by, sort_dir, sort_secondary_by, sort_secondary_dir))).all())
 
     wb = Workbook()
     ws = wb.active
@@ -382,11 +441,11 @@ def export_records_xlsx(
                 r.car_no,
                 r.workshop,
                 occur,
-                str(r.volumn),
-                str(unit_price),
+                str(r.volumn) if r.volume_available else None,
+                str(unit_price) if r.volume_available else None,
                 str(r.amount),
                 r.org_name,
-                str(r.balance),
+                str(r.balance) if r.balance_available else None,
                 r.gift_name,
             ]
         )
@@ -500,6 +559,28 @@ def create_record(db: DbSession, current: FleetUser, body: FuelRecordCreate) -> 
     db.commit()
     db.refresh(row)
     return row
+
+
+@router.get("/records/{record_id}", response_model=FuelRecordDetail)
+def get_record_detail(db: DbSession, current: CurrentUser, record_id: int) -> FuelRecordDetail:
+    row = db.scalar(scoped(select(FuelRecord).where(FuelRecord.id == record_id), FuelRecord, current))
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账单不存在或无权查看")
+    error = None
+    data = row.platform_data or {}
+    if data.get('orderNo') and 'productDetails' not in data:
+        from app.services.kunlun_bill_service import fetch_bill_products
+        try:
+            products = fetch_bill_products(data['orderNo'])
+        except Exception:
+            error = '昆仑商品明细暂时不可用，请稍后重试。'
+        else:
+            row.platform_data = dict(data, productDetails=products)
+            db.commit()
+            db.refresh(row)
+    result = FuelRecordDetail.model_validate(row)
+    result.product_detail_error = error
+    return result
 
 
 @router.delete("/records/{record_id}", status_code=status.HTTP_204_NO_CONTENT)

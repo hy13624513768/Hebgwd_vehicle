@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, JSON, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -47,6 +47,10 @@ class FuelRecord(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    platform_record_id: Mapped[str | None] = mapped_column(String(80), nullable=True, unique=True)
+    platform_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    volume_available: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    balance_available: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     card_asn: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
     balance: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)

@@ -44,7 +44,7 @@ ADDITIONS = {
         "purchase_amount": "NUMERIC(14,2) NULL", "registered_at": "TIMESTAMP WITH TIME ZONE NULL",
     },
     "fuel_cards": {"col_c": "VARCHAR(256) NOT NULL DEFAULT ''", "col_d": "VARCHAR(256) NOT NULL DEFAULT ''"},
-    "fuel_records": {"workshop": "VARCHAR(128) NOT NULL DEFAULT ''", "workshop_id": "INTEGER NULL REFERENCES workshops(id)"},
+    "fuel_records": {"workshop": "VARCHAR(128) NOT NULL DEFAULT ''", "workshop_id": "INTEGER NULL REFERENCES workshops(id)", "platform_record_id": "VARCHAR(80) NULL", "platform_data": "JSON NULL", "volume_available": "BOOLEAN NOT NULL DEFAULT true", "balance_available": "BOOLEAN NOT NULL DEFAULT true"},
     "fuel_balances": {"workshop_id": "INTEGER NULL REFERENCES workshops(id)"},
     "trip_requests": {"workshop_id": "INTEGER NULL REFERENCES workshops(id)"},
     "nav_presets": {"is_locked": "BOOLEAN NOT NULL DEFAULT true"},
@@ -132,6 +132,8 @@ def run_runtime_migrations() -> None:
             if not inspector.has_table(table, schema=schema):
                 continue
             qualified_table = f'"{schema}"."{table}"' if schema else f'"{table}"'
+            if table == "fuel_records":
+                conn.execute(text(f'CREATE UNIQUE INDEX IF NOT EXISTS "uq_fuel_records_platform_record_id" ON {qualified_table} (platform_record_id)'))
             for index_name, columns in indexes.items():
                 column_sql = ", ".join(f'"{column}"' for column in columns)
                 conn.execute(text(f'CREATE INDEX IF NOT EXISTS "{index_name}" ON {qualified_table} ({column_sql})'))
